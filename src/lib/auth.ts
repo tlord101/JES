@@ -50,6 +50,12 @@ export async function verifySessionToken(
   }
 }
 
+export async function getSessionFromRequest(req: { cookies: { get: (name: string) => { value?: string } | undefined } }): Promise<JWTPayload | null> {
+  const token = req.cookies.get(COOKIE_NAME)?.value;
+  if (!token) return null;
+  return verifySessionToken(token);
+}
+
 // In-Memory Rate Limiting
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
