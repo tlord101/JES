@@ -1,3 +1,4 @@
+import { NextRequest } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
 import { usersStore, User, UserType } from './db';
@@ -48,6 +49,18 @@ export async function verifySessionToken(
   } catch {
     return null;
   }
+}
+
+/** Extract and verify session from request cookies */
+export async function getSessionFromRequest(
+  req: NextRequest
+): Promise<JWTPayload | null> {
+  const token =
+    req.cookies.get(AUTH_COOKIE_NAME)?.value ||
+    req.cookies.get(COOKIE_NAME)?.value;
+
+  if (!token) return null;
+  return verifySessionToken(token);
 }
 
 // In-Memory Rate Limiting
