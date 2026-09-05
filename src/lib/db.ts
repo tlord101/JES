@@ -17,12 +17,17 @@ export interface User {
   passwordHash: string;
   phone?: string;
   photo?: string;
+  avatarUrl?: string;
   role: UserType;
   isActive: boolean;
   isEmailVerified: boolean;
   verificationToken?: string;
   resetPasswordToken?: string;
   resetPasswordExpires?: number;
+  /** Used by forgot/reset password flows */
+  resetToken?: string;
+  resetTokenExpiry?: string;
+  twoFactorEnabled?: boolean;
   notificationPreferences?: {
     email: boolean;
     sms: boolean;
@@ -77,6 +82,7 @@ export const usersStore: User[] = [
     role: "Super Admin",
     isActive: true,
     isEmailVerified: true,
+    twoFactorEnabled: false,
     notificationPreferences: { email: true, sms: true, announcements: true },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -90,6 +96,7 @@ export const usersStore: User[] = [
     role: "Principal",
     isActive: true,
     isEmailVerified: true,
+    twoFactorEnabled: false,
     notificationPreferences: { email: true, sms: true, announcements: true },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -103,6 +110,7 @@ export const usersStore: User[] = [
     role: "Teacher",
     isActive: true,
     isEmailVerified: true,
+    twoFactorEnabled: false,
     notificationPreferences: { email: true, sms: false, announcements: true },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -116,6 +124,7 @@ export const usersStore: User[] = [
     role: "Parent",
     isActive: true,
     isEmailVerified: true,
+    twoFactorEnabled: false,
     notificationPreferences: { email: true, sms: true, announcements: true },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -129,6 +138,7 @@ export const usersStore: User[] = [
     role: "Student",
     isActive: true,
     isEmailVerified: true,
+    twoFactorEnabled: false,
     notificationPreferences: { email: true, sms: false, announcements: true },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

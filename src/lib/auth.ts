@@ -1,3 +1,4 @@
+import { NextRequest } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
 import { usersStore, User, UserType } from './db';
