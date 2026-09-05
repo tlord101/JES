@@ -2,24 +2,24 @@ import React from 'react';
 import Link from 'next/link';
 import { cbtExamsStore } from '@/lib/cbtStore';
 
-export default function StaffExamsOverviewPage() {
+export default function StudentExamsOverviewPage() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">CBT & Examinations Engine</h1>
-          <p className="text-sm text-slate-500">Configure Computer-Based Tests, link question items, and track exam submissions for your assigned classes.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Computer-Based Tests (CBT)</h1>
+          <p className="text-sm text-slate-500">Access scheduled continuous assessments and online term examinations.</p>
         </div>
         <Link
-          href="/staff/exams/create"
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-2"
+          href="/student/exams/results"
+          className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors"
         >
-          <i className="bi bi-plus-circle"></i> Create CBT Exam
+          My Past Results
         </Link>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
-        <h2 className="text-base font-bold text-slate-900">Scheduled & Active CBT Papers</h2>
+        <h2 className="text-base font-bold text-slate-900">Available Test Papers</h2>
         <div className="space-y-4">
           {cbtExamsStore.map((exam) => (
             <div
@@ -35,22 +35,16 @@ export default function StaffExamsOverviewPage() {
                 </div>
                 <h3 className="text-base font-bold text-slate-900 mt-1">{exam.title}</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Duration: {exam.durationMinutes} mins • {exam.totalQuestions} Questions • Pass Mark: {exam.passMark}%
+                  Duration: {exam.durationMinutes} minutes • {exam.totalQuestions} Questions • Pass Mark: {exam.passMark}%
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div>
                 <Link
-                  href={`/staff/exams/${exam.id}/questions`}
-                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-colors"
+                  href={`/student/exams/${exam.id}/instructions`}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition-colors inline-block"
                 >
-                  Edit Questions
-                </Link>
-                <Link
-                  href={`/staff/exams/${exam.id}/results`}
-                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors"
-                >
-                  Exam Analytics
+                  Start Examination &rarr;
                 </Link>
               </div>
             </div>
