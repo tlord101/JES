@@ -125,7 +125,7 @@ export default function ParentFeesPage() {
 
       {/* ONLINE PAYMENT GATEWAY CHECKOUT MODAL */}
       {paymentModalInvoice && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 space-y-5 shadow-xl text-xs">
             <div className="text-center space-y-1">
               <div className="w-10 h-10 bg-emerald-100 text-emerald-700 font-bold rounded-xl flex items-center justify-center text-lg mx-auto">

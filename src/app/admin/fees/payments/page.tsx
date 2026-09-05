@@ -75,7 +75,7 @@ export default function AdminPaymentsPage() {
 
       {/* PRINTABLE RECEIPT MODAL */}
       {selectedReceipt && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 lg:p-8 space-y-6 shadow-xl">
             <div className="text-center border-b border-slate-100 pb-4 space-y-1">
               <div className="w-12 h-12 bg-blue-900 text-white font-bold rounded-2xl flex items-center justify-center text-lg mx-auto">
