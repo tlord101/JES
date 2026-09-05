@@ -73,3 +73,28 @@ export function logAuditEvent(
   auditLogsStore.unshift(newLog);
   return newLog;
 }
+
+export function addAuditLog(
+  actionOrObj: string | Partial<AuditLog>,
+  category?: AuditLog['category'],
+  details?: string,
+  userEmail = 'admin@jasmine.edu.ng',
+  userName = 'Administrator',
+  ip = '127.0.0.1'
+) {
+  if (typeof actionOrObj === 'object' && actionOrObj !== null) {
+    const newLog: AuditLog = {
+      id: actionOrObj.id || `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      action: actionOrObj.action || '',
+      category: actionOrObj.category || 'System',
+      details: actionOrObj.details || '',
+      userEmail: actionOrObj.userEmail || 'admin@jasmine.edu.ng',
+      userName: actionOrObj.userName || 'Administrator',
+      timestamp: actionOrObj.timestamp || new Date().toISOString(),
+      ip: actionOrObj.ip || '127.0.0.1',
+    };
+    auditLogsStore.unshift(newLog);
+    return newLog;
+  }
+  return logAuditEvent(actionOrObj, category || 'System', details || '', userEmail, userName, ip);
+}

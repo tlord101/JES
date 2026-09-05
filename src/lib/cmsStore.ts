@@ -262,6 +262,11 @@ export const studentsStore: StudentRecord[] = [
   },
 ];
 
+// Export aliases for backwards and cross-branch compatibility
+export const newsPosts = newsCMSStore;
+export const upcomingEvents = eventsCMSStore;
+export const eventsPosts = eventsCMSStore;
+
 export const parentsStore: ParentRecord[] = [
   {
     id: 'prt_01',
