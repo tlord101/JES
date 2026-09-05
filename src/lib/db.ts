@@ -1,3 +1,5 @@
+import bcrypt from 'bcryptjs';
+
 export type UserType =
   | 'Super Admin'
   | 'Administrator'
@@ -67,10 +69,9 @@ export interface Session {
   createdAt: string;
 }
 
-// In-Memory Database Store with pre-hashed default admin and mock accounts
-// Note: Default password for pre-seeded users is "Jasmine2025!"
-const defaultHashedPassword =
-  "$2a$10$wS2Wb5.iR9M.4ZfK8zU9/e5p3X.kEaB1u7K8p/ZzKzYpL/W3S4o5m"; // Hash for Jasmine2025!
+// Pre-hashed default password for pre-seeded accounts: "Jasmine2025!" or "Password123!"
+const defaultHashedPassword = bcrypt.hashSync("Jasmine2025!", 10);
+const demoHashedPassword = bcrypt.hashSync("Password123!", 10);
 
 export const usersStore: User[] = [
   {
@@ -84,6 +85,20 @@ export const usersStore: User[] = [
     isEmailVerified: true,
     twoFactorEnabled: false,
     notificationPreferences: { email: true, sms: true, announcements: true },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "usr_teacher_demo",
+    name: "Mr. Babatunde Adeleke",
+    email: "teacher@jasmine.edu.ng",
+    passwordHash: demoHashedPassword,
+    phone: "+234 803 123 4567",
+    role: "Teacher",
+    isActive: true,
+    isEmailVerified: true,
+    twoFactorEnabled: false,
+    notificationPreferences: { email: true, sms: false, announcements: true },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -134,6 +149,20 @@ export const usersStore: User[] = [
     name: "Osasere Clinton",
     email: "student@example.com",
     passwordHash: defaultHashedPassword,
+    phone: "+234 803 456 7890",
+    role: "Student",
+    isActive: true,
+    isEmailVerified: true,
+    twoFactorEnabled: false,
+    notificationPreferences: { email: true, sms: false, announcements: true },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "usr_student_demo",
+    name: "Osasere Clinton",
+    email: "student@jasmine.edu.ng",
+    passwordHash: demoHashedPassword,
     phone: "+234 803 456 7890",
     role: "Student",
     isActive: true,

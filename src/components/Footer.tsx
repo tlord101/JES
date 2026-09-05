@@ -1,6 +1,21 @@
+'use client';
+
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 export default function Footer() {
+  const pathname = usePathname();
+
+  // Hide public website footer when inside portal routes
+  if (
+    pathname?.startsWith('/admin') ||
+    pathname?.startsWith('/staff') ||
+    pathname?.startsWith('/parent') ||
+    pathname?.startsWith('/student')
+  ) {
+    return null;
+  }
+
   return (
     <footer className="bg-[var(--primary-dark)] text-white pt-12 pb-8 border-t-4 border-[var(--primary)]">
       <div className="max-w-7xl mx-auto px-4">

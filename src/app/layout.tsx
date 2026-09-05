@@ -4,8 +4,29 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 
 export const metadata: Metadata = {
-  title: 'Jasmine Exclusive School | Diligence for Excellence',
-  description: 'Nurturing intellectually excellent, morally sound and socially responsible children prepared to become agents of positive change in society.',
+  title: {
+    default: 'Jasmine Exclusive School | Diligence for Excellence',
+    template: '%s | Jasmine Exclusive School',
+  },
+  description:
+    'Premier educational institution in Benin City, Edo State, offering world-class Creche, Nursery, Primary, Junior Secondary (JSS), and Senior Secondary (SS) education.',
+  metadataBase: new URL('https://jasmineexclusiveschool.edu.ng'),
+  alternates: {
+    canonical: '/',
+  },
+  openGraph: {
+    title: 'Jasmine Exclusive School | Diligence for Excellence',
+    description:
+      'Empowering future leaders through academic rigor, moral integrity, digital innovation, and holistic child development.',
+    url: 'https://jasmineexclusiveschool.edu.ng',
+    siteName: 'Jasmine Exclusive School',
+    locale: 'en_NG',
+    type: 'website',
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({

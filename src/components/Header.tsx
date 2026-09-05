@@ -2,10 +2,22 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 export default function Header() {
+  const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+
+  // Hide public site header when inside portal routes
+  if (
+    pathname?.startsWith('/admin') ||
+    pathname?.startsWith('/staff') ||
+    pathname?.startsWith('/parent') ||
+    pathname?.startsWith('/student')
+  ) {
+    return null;
+  }
 
   const toggleDropdown = (name: string) => {
     setOpenDropdown(openDropdown === name ? null : name);
@@ -15,7 +27,7 @@ export default function Header() {
     <header className="sticky top-0 z-50 bg-white border-b border-[var(--border)]">
       {/* Top Banner Bar */}
       <div className="bg-[var(--primary)] text-white text-xs py-2 px-4">
-        <div className="max-w-7xl mx-mx-auto max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-2">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-2">
           <div className="flex items-center gap-4 flex-wrap justify-center sm:justify-start">
             <span className="flex items-center gap-1.5">
               <i className="bi bi-geo-alt-fill text-amber-400"></i>
