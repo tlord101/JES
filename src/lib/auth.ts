@@ -51,14 +51,8 @@ export async function verifySessionToken(
   }
 }
 
-/** Extract and verify session from request cookies */
-export async function getSessionFromRequest(
-  req: NextRequest
-): Promise<JWTPayload | null> {
-  const token =
-    req.cookies.get(AUTH_COOKIE_NAME)?.value ||
-    req.cookies.get(COOKIE_NAME)?.value;
-
+export async function getSessionFromRequest(req: { cookies: { get: (name: string) => { value?: string } | undefined } }): Promise<JWTPayload | null> {
+  const token = req.cookies.get(COOKIE_NAME)?.value;
   if (!token) return null;
   return verifySessionToken(token);
 }
