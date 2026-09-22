@@ -59,7 +59,7 @@ comment on function public.my_children() is
 -- Mirrors the public staff directory: only active, publicly listed staff.
 -- ---------------------------------------------------------------------------
 create or replace function public.teacher_directory()
-returns table (profile_id uuid, full_name text, position text)
+returns table (profile_id uuid, full_name text, "position" text)
 language sql stable security definer set search_path = public
 as $$
   select s.profile_id, p.full_name, s.position
@@ -77,7 +77,7 @@ comment on function public.teacher_directory() is
 -- School office: the accounts a parent may message from the portal.
 -- ---------------------------------------------------------------------------
 create or replace function public.school_contacts()
-returns table (profile_id uuid, full_name text, role public.user_role)
+returns table (profile_id uuid, full_name text, "role" public.user_role)
 language sql stable security definer set search_path = public
 as $$
   select p.id, p.full_name, p.role

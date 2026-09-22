@@ -202,7 +202,7 @@ create policy staff_write_admin on public.staff
 -- Public staff directory
 create or replace function public.public_staff_directory()
 returns table (
-  id uuid, staff_no text, full_name text, position text, department text,
+  id uuid, staff_no text, full_name text, "position" text, department text,
   qualification text, biography text, photo_url text, sort_order integer
 )
 language sql stable security definer set search_path = public
@@ -570,20 +570,23 @@ create policy faqs_read on public.faqs
   for select using (is_published = true or public.is_admin());
 drop policy if exists faqs_write on public.faqs;
 create policy faqs_write on public.faqs
-  for all to authenticated using (public.is_admin()) with check (public.is_admin());-- Announcements: audience aware
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- Announcements: audience aware
 create or replace function public.is_student()
 returns boolean
 language sql stable security definer set search_path = public
-as `
+as $$
   select public.auth_role() = 'student';
-`;
+$$;
 
 create or replace function public.is_parent()
 returns boolean
 language sql stable security definer set search_path = public
-as `
+as $$
   select public.auth_role() = 'parent';
-`;
+$$;
+
 
 
 drop policy if exists announcements_read on public.announcements;
