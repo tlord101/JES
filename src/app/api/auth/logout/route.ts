@@ -1,21 +1,13 @@
 import { NextResponse } from 'next/server';
-import { AUTH_COOKIE_NAME } from '@/lib/auth';
+import { createClient } from '@/lib/supabase/server';
+import { hasSupabaseEnv } from '@/lib/supabase/env';
 
+/** Clears the Supabase session. Safe to call when already signed out. */
 export async function POST() {
-  const response = NextResponse.json({
-    success: true,
-    message: 'Logged out successfully.',
-  });
+  if (hasSupabaseEnv()) {
+    const supabase = await createClient();
+    await supabase.auth.signOut();
+  }
 
-  response.cookies.set({
-    name: AUTH_COOKIE_NAME,
-    value: '',
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 0,
-  });
-
-  return response;
+  return NextResponse.json({ success: true });
 }

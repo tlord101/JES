@@ -185,7 +185,7 @@ export default function Header() {
         {/* Action CTA Buttons (Desktop) */}
         <div className="hidden lg:flex items-center gap-3">
           <Link
-            href="/auth/login"
+            href="/login"
             className="px-4 py-2 text-sm font-medium text-[var(--primary)] border border-[var(--primary)] rounded hover:bg-[var(--primary-light)] transition-colors flex items-center gap-1.5"
           >
             <i className="bi bi-person-lock"></i> Portal Login
@@ -318,7 +318,7 @@ export default function Header() {
 
           <div className="pt-2 flex flex-col gap-2">
             <Link
-              href="/auth/login"
+              href="/login"
               onClick={() => setMobileMenuOpen(false)}
               className="w-full py-2.5 text-center text-sm font-semibold text-[var(--primary)] border border-[var(--primary)] rounded"
             >

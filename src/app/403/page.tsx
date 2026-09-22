@@ -10,7 +10,7 @@ export default function Custom403Page() {
           You do not have administrative permission to access this resource. Please log in with authorized credentials.
         </p>
         <div className="pt-2 flex justify-center gap-3">
-          <Link href="/auth/login" className="px-4 py-2 bg-[var(--primary)] text-white text-xs font-bold rounded">
+          <Link href="/login" className="px-4 py-2 bg-[var(--primary)] text-white text-xs font-bold rounded">
             Portal Login
           </Link>
           <Link href="/" className="px-4 py-2 bg-[var(--soft-bg)] border border-[var(--border)] text-xs font-bold rounded">

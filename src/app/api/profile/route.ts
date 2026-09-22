@@ -1,110 +1,92 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest, findUserById, hashPassword, comparePassword } from '@/lib/auth';
+import { NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { hasSupabaseEnv } from '@/lib/supabase/env';
+import { recordAudit } from '@/lib/audit';
+import { profileUpdateSchema } from '@/lib/validation/auth';
 
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getSessionFromRequest(req);
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthenticated.' }, { status: 401 });
-    }
-
-    const user = findUserById(session.userId);
-    if (!user) {
-      return NextResponse.json({ error: 'User not found.' }, { status: 404 });
-    }
-
-    return NextResponse.json({
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        avatarUrl: user.avatarUrl,
-        isEmailVerified: user.isEmailVerified,
-        notificationPreferences: user.notificationPreferences,
-        twoFactorEnabled: user.twoFactorEnabled,
-        createdAt: user.createdAt,
-      },
-    });
-  } catch (err) {
-    return NextResponse.json(
-      { error: 'An error occurred fetching profile.' },
-      { status: 500 }
-    );
+/** Returns the signed-in user's profile. */
+export async function GET() {
+  if (!hasSupabaseEnv()) {
+    return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 503 });
   }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthenticated.' }, { status: 401 });
+  }
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (error || !profile) {
+    return NextResponse.json({ error: 'Profile not found.' }, { status: 404 });
+  }
+
+  return NextResponse.json({ success: true, profile });
 }
 
-export async function PUT(req: NextRequest) {
+/**
+ * Updates the caller's own profile.
+ *
+ * Role, email and activation state are intentionally not editable here; RLS and
+ * the `profiles_guard_privileges` trigger reject those changes for non-admins.
+ */
+export async function PATCH(request: Request) {
+  if (!hasSupabaseEnv()) {
+    return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 503 });
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthenticated.' }, { status: 401 });
+  }
+
+  let payload: unknown;
   try {
-    const session = await getSessionFromRequest(req);
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthenticated.' }, { status: 401 });
-    }
+    payload = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+  }
 
-    const user = findUserById(session.userId);
-    if (!user) {
-      return NextResponse.json({ error: 'User not found.' }, { status: 404 });
-    }
-
-    const body = await req.json();
-    const { name, phone, currentPassword, newPassword, notificationPreferences } = body;
-
-    if (name) user.name = name;
-    if (phone !== undefined) user.phone = phone;
-    if (notificationPreferences) {
-      user.notificationPreferences = {
-        ...user.notificationPreferences,
-        ...notificationPreferences,
-      };
-    }
-
-    if (newPassword) {
-      if (!currentPassword) {
-        return NextResponse.json(
-          { error: 'Current password is required to set a new password.' },
-          { status: 400 }
-        );
-      }
-
-      const isCurrentValid = await comparePassword(currentPassword, user.passwordHash);
-      if (!isCurrentValid) {
-        return NextResponse.json(
-          { error: 'Current password provided is incorrect.' },
-          { status: 400 }
-        );
-      }
-
-      if (newPassword.length < 8) {
-        return NextResponse.json(
-          { error: 'New password must be at least 8 characters long.' },
-          { status: 400 }
-        );
-      }
-
-      user.passwordHash = await hashPassword(newPassword);
-    }
-
-    user.updatedAt = new Date().toISOString();
-
-    return NextResponse.json({
-      success: true,
-      message: 'Profile updated successfully.',
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        avatarUrl: user.avatarUrl,
-        isEmailVerified: user.isEmailVerified,
-        notificationPreferences: user.notificationPreferences,
-      },
-    });
-  } catch (err) {
+  const parsed = profileUpdateSchema.safeParse(payload);
+  if (!parsed.success) {
     return NextResponse.json(
-      { error: 'An error occurred updating profile.' },
-      { status: 500 }
+      { error: 'Validation failed.', issues: parsed.error.flatten().fieldErrors },
+      { status: 400 }
     );
   }
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({
+      full_name: parsed.data.fullName,
+      phone: parsed.data.phone ? parsed.data.phone : null,
+      avatar_url: parsed.data.avatarUrl ? parsed.data.avatarUrl : null,
+    })
+    .eq('id', user.id);
+
+  if (error) {
+    return NextResponse.json({ error: 'Could not update the profile.' }, { status: 500 });
+  }
+
+  await recordAudit({
+    action: 'Profile updated',
+    category: 'User',
+    details: 'Profile updated through the profile API',
+    actorId: user.id,
+    actorEmail: user.email ?? null,
+  });
+
+  return NextResponse.json({ success: true });
 }

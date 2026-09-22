@@ -78,7 +78,7 @@ export default function Footer() {
               <li><Link href="/gallery" className="hover:text-white transition-colors">Photo & Video Gallery</Link></li>
               <li><Link href="/pta" className="hover:text-white transition-colors">PTA Forum</Link></li>
               <li><Link href="/alumni" className="hover:text-white transition-colors">Alumni Network</Link></li>
-              <li><Link href="/auth/login" className="hover:text-white transition-colors">Portal Login</Link></li>
+              <li><Link href="/login" className="hover:text-white transition-colors">Portal Login</Link></li>
             </ul>
 
             <h5 className="font-medium text-xs text-white mb-2">Connect With Us</h5>

@@ -1,51 +1,29 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest, findUserById } from '@/lib/auth';
-import { ROLE_PERMISSIONS } from '@/lib/rbac';
+import { NextResponse } from 'next/server';
+import { getCurrentUser } from '@/lib/auth/session';
 
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getSessionFromRequest(req);
+/**
+ * Current session for client components (portal dashboards, user menus).
+ * Backed by the Supabase session cookie — no custom JWT.
+ */
+export async function GET() {
+  const user = await getCurrentUser();
 
-    if (!session) {
-      return NextResponse.json(
-        { error: 'Unauthenticated.' },
-        { status: 401 }
-      );
-    }
+  if (!user) {
+    return NextResponse.json({ authenticated: false, error: 'Unauthenticated.' }, { status: 401 });
+  }
 
-    const user = findUserById(session.userId);
-
-    if (!user || !user.isActive) {
-      return NextResponse.json(
-        { error: 'User account not found or deactivated.' },
-        { status: 401 }
-      );
-    }
-
-    const userPermissions = ROLE_PERMISSIONS[user.role] || [];
-
-    const safeUser = {
+  return NextResponse.json({
+    authenticated: true,
+    user: {
       id: user.id,
-      name: user.name,
+      name: user.fullName,
       email: user.email,
       phone: user.phone,
       role: user.role,
       avatarUrl: user.avatarUrl,
-      isEmailVerified: user.isEmailVerified,
+      isActive: user.isActive,
+      isEmailVerified: user.isVerified,
       notificationPreferences: user.notificationPreferences,
-      twoFactorEnabled: user.twoFactorEnabled,
-      permissions: userPermissions,
-      createdAt: user.createdAt,
-    };
-
-    return NextResponse.json({
-      authenticated: true,
-      user: safeUser,
-    });
-  } catch (err) {
-    return NextResponse.json(
-      { error: 'An error occurred fetching user session.' },
-      { status: 500 }
-    );
-  }
+    },
+  });
 }
