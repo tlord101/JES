@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "check:rls": "node scripts/rls-check.mjs",
     "seed:admin": "node scripts/seed-admin.mjs"
   },
   "dependencies": {
