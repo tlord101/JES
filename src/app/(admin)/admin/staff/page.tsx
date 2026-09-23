@@ -1,195 +1,125 @@
-'use client';
+﻿import Link from 'next/link';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, StatusBadge, EmptyState } from '@/lib/admin/ui';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { staffRecordsStore, StaffRecord } from '@/lib/cmsStore';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function AdminStaffPage() {
-  const [staffList, setStaffList] = useState<StaffRecord[]>([...staffRecordsStore]);
-  const [search, setSearch] = useState('');
-  const [showModal, setShowModal] = useState(false);
+type SP = Record<string, string | string[] | undefined>;
 
-  const [name, setName] = useState('');
-  const [position, setPosition] = useState('');
-  const [department, setDepartment] = useState('Sciences');
-  const [subjects, setSubjects] = useState('');
-  const [qualifications, setQualifications] = useState('');
-  const [biography, setBiography] = useState('');
+type StaffRow = {
+  id: string;
+  staff_no: string;
+  position: string;
+  department: string | null;
+  status: string;
+  photo_url: string | null;
+  profile: { full_name: string; email: string; phone: string | null } | null;
+};
 
-  const filtered = staffList.filter(
-    (s) =>
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.position.toLowerCase().includes(search.toLowerCase()) ||
-      s.department.toLowerCase().includes(search.toLowerCase())
-  );
+export default async function AdminStaffPage({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const sp = await searchParams;
+  const q = typeof sp.q === 'string' ? sp.q.trim().toLowerCase() : '';
+  const supabase = await createClient();
 
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !position) return;
+  const { data, error } = await supabase
+    .from('staff')
+    .select('id, staff_no, position, department, status, photo_url, profile:profiles(full_name, email, phone)')
+    .order('staff_no')
+    .limit(500);
 
-    const newStaff: StaffRecord = {
-      id: `stf_${Date.now()}`,
-      name,
-      position,
-      department,
-      subjects: subjects ? subjects.split(',').map((s) => s.trim()) : ['General'],
-      qualifications: qualifications || 'B.Ed',
-      photo: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=400&q=80',
-      biography: biography || 'Dedicated faculty member at Jasmine Exclusive School.',
-      status: 'Active',
-    };
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Staff" />
+        <div className="alert-danger">Failed to load staff: {error.message}</div>
+      </div>
+    );
+  }
 
-    staffRecordsStore.push(newStaff);
-    setStaffList([...staffRecordsStore]);
-    logAuditEvent('Staff Member Created', 'Staff', `Added staff directory profile for ${name} (${position})`);
-
-    setName('');
-    setPosition('');
-    setSubjects('');
-    setQualifications('');
-    setBiography('');
-    setShowModal(false);
-  };
+  let rows = (data ?? []) as unknown as StaffRow[];
+  if (q) {
+    rows = rows.filter(
+      (s) =>
+        (s.profile?.full_name ?? '').toLowerCase().includes(q) ||
+        s.staff_no.toLowerCase().includes(q) ||
+        (s.department ?? '').toLowerCase().includes(q) ||
+        s.position.toLowerCase().includes(q),
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--primary-dark)]">Staff & Faculty Directory</h1>
-          <p className="text-xs text-[var(--muted-text)]">
-            Manage teaching and non-teaching staff, departmental designations, subject allocations, and qualifications.
-          </p>
-        </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="px-4 py-2 bg-[var(--primary)] text-white text-xs font-bold rounded hover:bg-[var(--primary-dark)] transition-colors flex items-center gap-1.5"
-        >
-          <i className="bi bi-person-plus-fill"></i>
-          <span>Add Staff Member</span>
+      <PageHeader
+        title="Staff"
+        description="Teaching and non-teaching staff directory."
+        actions={
+          <Link href="/admin/users/new" className="btn-primary">
+            Add staff member
+          </Link>
+        }
+      />
+      <Flash ok={sp.ok} err={sp.err} />
+
+      <form className="flex gap-2" action="/admin/staff">
+        <input
+          type="search"
+          name="q"
+          defaultValue={q}
+          placeholder="Search name, staff no or department..."
+          className="input-field max-w-md"
+        />
+        <button type="submit" className="btn-secondary">
+          Search
         </button>
-      </div>
+      </form>
 
-      <div className="bg-white p-4 border border-[var(--border)] rounded flex items-center text-xs">
-        <div className="relative flex-1">
-          <input
-            type="text"
-            placeholder="Search staff by name, position, or department..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-8 pr-3 py-2 border border-[var(--border)] rounded bg-white focus:outline-none focus:border-[var(--primary)]"
-          />
-          <i className="bi bi-search absolute left-2.5 top-2.5 text-[var(--muted-text)]"></i>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filtered.map((s) => (
-          <div key={s.id} className="bg-white p-5 border border-[var(--border)] rounded flex gap-4 text-xs">
-            <img
-              src={s.photo}
-              alt={s.name}
-              className="w-16 h-16 rounded object-cover border border-[var(--border)] flex-shrink-0"
-            />
-            <div className="flex-1 space-y-1">
-              <div className="flex justify-between items-start">
-                <h3 className="font-bold text-sm text-[var(--primary-dark)]">{s.name}</h3>
-                <span className="px-2 py-0.5 bg-green-100 text-green-800 font-bold text-[10px] rounded">
-                  {s.status}
-                </span>
-              </div>
-              <div className="font-semibold text-[var(--text)]">{s.position}</div>
-              <div className="text-[var(--muted-text)] font-semibold">Department: {s.department}</div>
-              <div className="text-[11px] text-slate-500 font-mono">Qualifications: {s.qualifications}</div>
-              <div className="pt-2 flex justify-end">
-                <Link
-                  href={`/admin/staff/${s.id}`}
-                  className="px-3 py-1 bg-white border border-[var(--border)] font-bold rounded hover:bg-[var(--soft-bg)]"
-                >
-                  Edit Profile
-                </Link>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white p-6 border border-[var(--border)] rounded max-w-md w-full space-y-4">
-            <div className="flex justify-between items-center border-b border-[var(--border)] pb-2">
-              <h2 className="text-base font-bold text-[var(--primary-dark)]">Add Staff Member</h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-black">
-                <i className="bi bi-x-lg"></i>
-              </button>
-            </div>
-            <form onSubmit={handleCreate} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold mb-1">Staff Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Mr. Osagie Aghedo"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Position / Designation *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Head of Mathematics"
-                  value={position}
-                  onChange={(e) => setPosition(e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Department</label>
-                <input
-                  type="text"
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Assigned Subjects (Comma-separated)</label>
-                <input
-                  type="text"
-                  placeholder="Mathematics, Further Mathematics"
-                  value={subjects}
-                  onChange={(e) => setSubjects(e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Qualifications</label>
-                <input
-                  type="text"
-                  placeholder="e.g. B.Sc, PGDE, M.Sc"
-                  value={qualifications}
-                  onChange={(e) => setQualifications(e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 border border-[var(--border)] font-bold rounded"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white font-bold rounded">
-                  Save Staff Member
-                </button>
-              </div>
-            </form>
-          </div>
+      {rows.length === 0 ? (
+        <EmptyState
+          title={q ? 'No matches' : 'No staff yet'}
+          body={q ? 'Try a different search.' : 'Create staff accounts under Users.'}
+          action={
+            <Link href="/admin/users/new" className="btn-primary">
+              Add staff member
+            </Link>
+          }
+        />
+      ) : (
+        <div className="card overflow-x-auto p-0">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Staff no</th>
+                <th>Name</th>
+                <th>Position</th>
+                <th>Department</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((s) => (
+                <tr key={s.id}>
+                  <td className="font-mono text-xs">{s.staff_no}</td>
+                  <td className="font-medium text-slate-900">{s.profile?.full_name ?? '—'}</td>
+                  <td>{s.position}</td>
+                  <td>{s.department || '—'}</td>
+                  <td>{s.profile?.email ?? '—'}</td>
+                  <td>
+                    <StatusBadge status={s.status} />
+                  </td>
+                  <td className="text-right">
+                    <Link href={`/admin/staff/${s.id}`} className="text-sm text-primary-600 hover:underline">
+                      View
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

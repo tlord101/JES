@@ -1,167 +1,202 @@
-'use client';
+﻿import { notFound } from 'next/navigation';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { StatusBadge, EmptyState } from '@/lib/admin/ui';
+import { PrintButton } from './PrintButton';
 
-import { use } from 'react';
-import Link from 'next/link';
-import { resultsStore, StudentResult } from '@/lib/academicStore';
-import { studentsStore } from '@/lib/cmsStore';
+export const dynamic = 'force-dynamic';
 
-export default function PrintableReportSheetPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const studentId = resolvedParams.id;
+export default async function PrintableReportSheetPage({ params }: { params: Promise<{ id: string }> }) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const { id } = await params;
+  const supabase = await createClient();
 
-  const student = studentsStore.find((s) => s.id === studentId) || studentsStore[0];
-  const studentResults = resultsStore.filter((r) => r.studentId === student.id);
+  const { data: result } = await supabase
+    .from('results')
+    .select(
+      `id, ca1_score, ca2_score, exam_score, ca_score, total_score, grade, remark, position_in_class, status,
+       approved_at, created_at,
+       student:students(id, admission_no, date_of_birth, gender, profile:profiles(full_name)),
+       subject:subjects(id, name, code),
+       class:classes(id, name, arm),
+       term:terms(id, name, start_date, end_date, year:academic_years(name))`,
+    )
+    .eq('id', id)
+    .maybeSingle();
 
-  const totalScoreSum = studentResults.reduce((acc, curr) => acc + curr.totalScore, 0);
-  const averageScore = studentResults.length > 0 ? (totalScoreSum / studentResults.length).toFixed(1) : '0';
+  if (!result) notFound();
 
-  const handlePrint = () => {
-    if (typeof window !== 'undefined') {
-      window.print();
-    }
+  const r = result as unknown as {
+    id: string;
+    ca1_score: number;
+    ca2_score: number;
+    exam_score: number;
+    ca_score: number;
+    total_score: number;
+    grade: string | null;
+    remark: string | null;
+    position_in_class: number | null;
+    status: string;
+    approved_at: string | null;
+    student: {
+      id: string;
+      admission_no: string;
+      gender: string | null;
+      profile: { full_name: string } | null;
+    } | null;
+    subject: { id: string; name: string; code: string | null } | null;
+    class: { id: string; name: string; arm: string | null } | null;
+    term: { id: string; name: string; year: { name: string } | null } | null;
   };
 
+  const { data: siblings } = await supabase
+    .from('results')
+    .select('id, total_score, grade, subject:subjects(name, code)')
+    .eq('student_id', r.student?.id ?? '')
+    .eq('term_id', r.term?.id ?? '')
+    .order('total_score', { ascending: false });
+
+  const siblingRows = ((siblings ?? []) as unknown as {
+    id: string;
+    total_score: number;
+    grade: string | null;
+    subject: { name: string; code: string | null } | null;
+  }[]) ?? [];
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6 text-xs">
-      {/* Top Action Bar (Hidden when printing) */}
-      <div className="print:hidden bg-white p-4 border border-[var(--border)] rounded flex justify-between items-center">
-        <Link href="/admin/results" className="font-bold text-[var(--primary)] hover:underline">
-          ← Back to Results Ledger
-        </Link>
-        <button
-          onClick={handlePrint}
-          className="px-4 py-2 bg-[var(--primary)] text-white font-bold rounded hover:bg-[var(--primary-dark)] flex items-center gap-1.5"
-        >
-          <i className="bi bi-printer-fill"></i>
-          <span>Print Official Report Sheet</span>
-        </button>
+    <div className="space-y-6 print:space-y-4">
+      <div className="no-print flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Result sheet</h1>
+          <p className="text-sm text-slate-500">Single-subject result with term context.</p>
+        </div>
+        <PrintButton />
       </div>
 
-      {/* Official Report Sheet Container */}
-      <div className="bg-white p-8 border border-slate-300 shadow-sm space-y-6 print:p-0 print:border-none print:shadow-none text-slate-800 font-serif">
-        {/* School Header Banner */}
-        <div className="text-center border-b-2 border-slate-800 pb-4 space-y-1">
-          <div className="w-12 h-12 bg-[var(--primary-dark)] text-white font-black text-xl flex items-center justify-center mx-auto rounded">
-            JES
+      <section className="card print:border-0">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-slate-400">Student</div>
+            <div className="font-semibold text-slate-900">{r.student?.profile?.full_name ?? '—'}</div>
+            <div className="font-mono text-sm text-slate-500">{r.student?.admission_no}</div>
           </div>
-          <h1 className="text-2xl font-black uppercase tracking-wider text-[var(--primary-dark)]">
-            Jasmine Exclusive School
-          </h1>
-          <p className="text-xs font-bold italic tracking-wide text-slate-600">Motto: Diligence for Excellence</p>
-          <p className="text-[11px] text-slate-500 font-sans">
-            12 Aitamegbe Street, Off Narrow Way Street, Aduwawa, Benin City, Edo State • Tel: +234 806 078 2404
-          </p>
-          <div className="pt-2">
-            <span className="px-4 py-1 bg-slate-100 text-slate-900 border border-slate-400 text-xs font-sans font-bold uppercase tracking-widest inline-block">
-              Termly Student Terminal Academic Report Sheet
-            </span>
+          <div>
+            <div className="text-xs uppercase tracking-wide text-slate-400">Class</div>
+            <div className="font-semibold text-slate-900">
+              {r.class ? `${r.class.name}${r.class.arm ? ' ' + r.class.arm : ''}` : '—'}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-wide text-slate-400">Term</div>
+            <div className="font-semibold text-slate-900">
+              {r.term ? `${r.term.year?.name ? r.term.year.name + ' · ' : ''}${r.term.name}` : '—'}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-wide text-slate-400">Status</div>
+            <div className="mt-1">
+              <StatusBadge status={r.status} />
+            </div>
           </div>
         </div>
+      </section>
 
-        {/* Student Identification Info */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-sans bg-slate-50 p-4 border border-slate-200 rounded">
-          <div>
-            <span className="text-slate-500 block font-semibold">STUDENT NAME:</span>
-            <strong className="text-slate-900 font-bold">{student.name}</strong>
-          </div>
-          <div>
-            <span className="text-slate-500 block font-semibold">ADMISSION NO:</span>
-            <strong className="text-slate-900 font-mono font-bold">{student.admissionNo}</strong>
-          </div>
-          <div>
-            <span className="text-slate-500 block font-semibold">CLASS ARM:</span>
-            <strong className="text-slate-900 font-bold">{student.class}</strong>
-          </div>
-          <div>
-            <span className="text-slate-500 block font-semibold">ACADEMIC SESSION:</span>
-            <strong className="text-slate-900 font-bold">2024/2025 (First Term)</strong>
-          </div>
+      <section className="card print:border-0">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">
+            {r.subject?.name}
+            {r.subject?.code ? <span className="text-sm font-normal text-slate-400"> ({r.subject.code})</span> : null}
+          </h2>
+          {r.grade ? (
+            <span className="rounded-full bg-primary-50 px-4 py-1 text-xl font-bold text-primary-700">{r.grade}</span>
+          ) : null}
         </div>
-
-        {/* Subject Results Breakdown Table */}
-        <div className="font-sans">
-          <table className="w-full text-left border-collapse text-xs border border-slate-800">
-            <thead>
-              <tr className="bg-slate-800 text-white font-bold border-b border-slate-800">
-                <th className="p-2.5 border-r border-slate-700">SUBJECT TITLE</th>
-                <th className="p-2.5 text-center border-r border-slate-700">CA SCORE (30)</th>
-                <th className="p-2.5 text-center border-r border-slate-700">EXAM SCORE (70)</th>
-                <th className="p-2.5 text-center border-r border-slate-700 font-black">TOTAL (100)</th>
-                <th className="p-2.5 text-center border-r border-slate-700">GRADE</th>
-                <th className="p-2.5 text-center border-r border-slate-700">REMARK</th>
-                <th className="p-2.5 text-center">STATUS</th>
+        <table className="table mt-4">
+          <tbody>
+            <tr>
+              <td>Continuous Assessment 1</td>
+              <td className="text-right font-medium tabular-nums">{r.ca1_score} / 20</td>
+            </tr>
+            <tr>
+              <td>Continuous Assessment 2</td>
+              <td className="text-right font-medium tabular-nums">{r.ca2_score} / 20</td>
+            </tr>
+            <tr>
+              <td>CA total</td>
+              <td className="text-right font-medium tabular-nums">{r.ca_score} / 40</td>
+            </tr>
+            <tr>
+              <td>Examination</td>
+              <td className="text-right font-medium tabular-nums">{r.exam_score} / 60</td>
+            </tr>
+            <tr className="border-t-2 border-slate-200">
+              <td className="font-semibold">Total</td>
+              <td className="text-right text-lg font-bold tabular-nums">{r.total_score} / 100</td>
+            </tr>
+            <tr>
+              <td>Position in class</td>
+              <td className="text-right font-medium tabular-nums">
+                {r.position_in_class ? `${r.position_in_class}${ordinal(r.position_in_class)}` : '—'}
+              </td>
+            </tr>
+            {r.remark ? (
+              <tr>
+                <td>Remark</td>
+                <td className="text-right">{r.remark}</td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-300">
-              {studentResults.length === 0 ? (
+            ) : null}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="space-y-3 print:border-0">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">All subjects this term</h2>
+        {siblingRows.length <= 1 ? (
+          <EmptyState message="No other results recorded for this student in this term." />
+        ) : (
+          <div className="card overflow-x-auto p-0 print:border-0">
+            <table className="table">
+              <thead>
                 <tr>
-                  <td colSpan={7} className="p-4 text-center text-slate-500 italic">
-                    No term scores entered or published for this student yet.
-                  </td>
+                  <th>Subject</th>
+                  <th className="text-right">Total</th>
+                  <th>Grade</th>
+                  <th className="text-right">This result</th>
                 </tr>
-              ) : (
-                studentResults.map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-50">
-                    <td className="p-2.5 font-bold text-slate-900 border-r border-slate-200">{r.subjectName}</td>
-                    <td className="p-2.5 text-center font-mono border-r border-slate-200">{r.caScore}</td>
-                    <td className="p-2.5 text-center font-mono border-r border-slate-200">{r.examScore}</td>
-                    <td className="p-2.5 text-center font-mono font-black text-slate-900 border-r border-slate-200">{r.totalScore}</td>
-                    <td className="p-2.5 text-center font-bold text-slate-900 border-r border-slate-200">{r.grade}</td>
-                    <td className="p-2.5 text-center font-semibold text-slate-700 border-r border-slate-200">{r.remark}</td>
-                    <td className="p-2.5 text-center font-semibold text-[10px] text-green-700">{r.status}</td>
+              </thead>
+              <tbody>
+                {siblingRows.map((s) => (
+                  <tr key={s.id} className={s.id === r.id ? 'bg-primary-50' : ''}>
+                    <td>
+                      {s.subject?.name}
+                      {s.subject?.code ? <span className="text-xs text-slate-400"> ({s.subject.code})</span> : null}
+                    </td>
+                    <td className="text-right tabular-nums">{s.total_score}</td>
+                    <td>{s.grade ?? '—'}</td>
+                    <td className="text-right">{s.id === r.id ? '← current' : ''}</td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Academic Performance Summary */}
-        <div className="grid grid-cols-3 gap-3 font-sans text-center text-xs">
-          <div className="p-3 bg-slate-100 border border-slate-300 rounded">
-            <div className="text-[10px] text-slate-500 font-bold uppercase">GRAND TOTAL MARKS</div>
-            <div className="font-mono font-black text-base text-slate-900 pt-0.5">{totalScoreSum} / {studentResults.length * 100}</div>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div className="p-3 bg-slate-100 border border-slate-300 rounded">
-            <div className="text-[10px] text-slate-500 font-bold uppercase">TERM AVERAGE</div>
-            <div className="font-mono font-black text-base text-slate-900 pt-0.5">{averageScore}%</div>
-          </div>
-          <div className="p-3 bg-slate-100 border border-slate-300 rounded">
-            <div className="text-[10px] text-slate-500 font-bold uppercase">CLASS POSITION</div>
-            <div className="font-mono font-black text-base text-slate-900 pt-0.5">2nd out of 28</div>
-          </div>
-        </div>
-
-        {/* Remarks Section */}
-        <div className="space-y-3 font-sans text-xs">
-          <div className="p-3 border border-slate-300 rounded space-y-1">
-            <span className="font-bold text-slate-900 block">SUBJECT / FORM TEACHER'S REMARK:</span>
-            <p className="text-slate-700 italic">
-              «Consistently demonstrates strong analytical and mathematical problem-solving skills. Excellent conduct in class.»
-            </p>
-          </div>
-
-          <div className="p-3 border border-slate-300 rounded space-y-1">
-            <span className="font-bold text-slate-900 block">PRINCIPAL'S OFFICIAL REMARK:</span>
-            <p className="text-slate-700 italic">
-              «An outstanding academic performance. Keep up the diligence for excellence!»
-            </p>
-          </div>
-        </div>
-
-        {/* Official Signatures */}
-        <div className="grid grid-cols-2 gap-8 pt-6 font-sans text-xs border-t border-slate-300">
-          <div className="text-center space-y-8">
-            <div className="border-b border-slate-400 w-48 mx-auto"></div>
-            <span className="font-bold text-slate-700 block">Form Teacher's Signature & Date</span>
-          </div>
-
-          <div className="text-center space-y-8">
-            <div className="border-b border-slate-400 w-48 mx-auto"></div>
-            <span className="font-bold text-slate-700 block">Principal's Official Stamp & Signature</span>
-          </div>
-        </div>
-      </div>
+        )}
+      </section>
     </div>
   );
+}
+
+function ordinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return 'th';
+  switch (n % 10) {
+    case 1:
+      return 'st';
+    case 2:
+      return 'nd';
+    case 3:
+      return 'rd';
+    default:
+      return 'th';
+  }
 }

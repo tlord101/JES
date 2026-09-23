@@ -1,82 +1,117 @@
-'use client';
+﻿import Link from 'next/link';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, EmptyState, StatusBadge } from '@/lib/admin/ui';
+import { setResultStatus } from '@/lib/admin/people-actions';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { resultsStore, StudentResult } from '@/lib/academicStore';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function ApproveResultsPage() {
-  const [results, setResults] = useState<StudentResult[]>([...resultsStore]);
+type SP = Record<string, string | string[] | undefined>;
 
-  const reviewedResults = results.filter((r) => r.status === 'Reviewed');
+export default async function ApproveResultsPage({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const sp = await searchParams;
+  const supabase = await createClient();
 
-  const handleApprove = (id: string) => {
-    const rec = resultsStore.find((r) => r.id === id);
-    if (rec) {
-      rec.status = 'Approved';
-      setResults([...resultsStore]);
-      logAuditEvent('Result Approved', 'System', `Principal approved result for ${rec.studentName} (${rec.subjectName})`);
-    }
-  };
+  const { data, error } = await supabase
+    .from('results')
+    .select(
+      `id, total_score, grade, status, updated_at,
+       student:students(id, admission_no, profile:profiles(full_name)),
+       subject:subjects(id, name),
+       class:classes(id, name, arm),
+       term:terms(id, name)`,
+    )
+    .in('status', ['submitted', 'approved'])
+    .order('updated_at', { ascending: false })
+    .limit(500);
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Approve results" />
+        <div className="alert-danger">Failed to load results: {error.message}</div>
+      </div>
+    );
+  }
+
+  const rows = (data ?? []) as unknown as {
+    id: string;
+    total_score: number;
+    grade: string | null;
+    status: string;
+    student: { admission_no: string; profile: { full_name: string } | null } | null;
+    subject: { name: string } | null;
+    class: { name: string; arm: string | null } | null;
+    term: { name: string } | null;
+  }[];
+
+  const pending = rows.filter((r) => r.status === 'submitted');
+  const approved = rows.filter((r) => r.status === 'approved');
 
   return (
-    <div className="space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex justify-between items-center">
-        <div>
-          <Link href="/admin/results" className="font-bold text-[var(--primary)] hover:underline">
-            ← Back to Results Engine
+    <div className="space-y-6">
+      <PageHeader
+        title="Approve results"
+        description={`${pending.length} submitted · ${approved.length} approved and ready to publish.`}
+        actions={
+          <Link href="/admin/results/publish" className="btn-primary">
+            Publish approved →
           </Link>
-          <h1 className="text-xl font-bold text-[var(--primary-dark)] mt-1">Principal Approval Stage</h1>
-          <p className="text-xs text-[var(--muted-text)]">Review HOD-approved scores and grant official Principal sign-off.</p>
-        </div>
-      </div>
+        }
+      />
+      <Flash ok={sp.ok} err={sp.err} />
 
-      <div className="bg-white border border-[var(--border)] rounded overflow-hidden">
-        <div className="p-4 font-bold text-sm text-[var(--primary-dark)] border-b border-[var(--border)]">
-          Reviewed Results Awaiting Principal Approval ({reviewedResults.length})
-        </div>
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-[var(--border)] bg-[var(--soft-bg)] text-[var(--muted-text)] font-semibold">
-              <th className="p-3">Student Name</th>
-              <th className="p-3">Subject</th>
-              <th className="p-3">CA (30)</th>
-              <th className="p-3">Exam (70)</th>
-              <th className="p-3 font-bold">Total</th>
-              <th className="p-3">Grade</th>
-              <th className="p-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--border)]">
-            {reviewedResults.length === 0 ? (
+      {rows.length === 0 ? (
+        <EmptyState title="Nothing to approve" body="No submitted or approved results right now." />
+      ) : (
+        <div className="card overflow-x-auto p-0">
+          <table className="table">
+            <thead>
               <tr>
-                <td colSpan={7} className="p-6 text-center text-[var(--muted-text)] font-semibold">
-                  No reviewed score entries currently awaiting Principal approval.
-                </td>
+                <th>Student</th>
+                <th>Subject</th>
+                <th>Class</th>
+                <th>Term</th>
+                <th className="text-right">Total</th>
+                <th>Grade</th>
+                <th>Status</th>
+                <th className="text-right">Action</th>
               </tr>
-            ) : (
-              reviewedResults.map((r) => (
-                <tr key={r.id} className="hover:bg-[var(--soft-bg)]">
-                  <td className="p-3 font-bold text-[var(--text)]">{r.studentName}</td>
-                  <td className="p-3 font-semibold">{r.subjectName}</td>
-                  <td className="p-3 font-mono">{r.caScore}</td>
-                  <td className="p-3 font-mono">{r.examScore}</td>
-                  <td className="p-3 font-mono font-bold text-[var(--primary-dark)]">{r.totalScore}</td>
-                  <td className="p-3 font-bold text-green-700">{r.grade}</td>
-                  <td className="p-3 text-right">
-                    <button
-                      onClick={() => handleApprove(r.id)}
-                      className="px-3 py-1 bg-amber-600 text-white font-bold rounded hover:bg-amber-700"
-                    >
-                      Approve Result
-                    </button>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="font-medium text-slate-900">{r.student?.profile?.full_name ?? '—'}</td>
+                  <td>{r.subject?.name}</td>
+                  <td>{r.class ? `${r.class.name}${r.class.arm ? ' ' + r.class.arm : ''}` : '—'}</td>
+                  <td>{r.term?.name ?? '—'}</td>
+                  <td className="text-right font-medium tabular-nums">{r.total_score}</td>
+                  <td>{r.grade ?? '—'}</td>
+                  <td>
+                    <StatusBadge status={r.status} />
+                  </td>
+                  <td className="text-right">
+                    {r.status === 'submitted' ? (
+                      <form action={setResultStatus} className="inline-flex">
+                        <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="status" value="approved" />
+                        <input type="hidden" name="path" value="/admin/results/approve" />
+                        <button type="submit" className="btn-primary">
+                          Approve
+                        </button>
+                      </form>
+                    ) : (
+                      <span className="text-sm text-slate-400">Approved</span>
+                    )}
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

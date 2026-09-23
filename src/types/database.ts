@@ -704,6 +704,58 @@ export type SchoolContactRow = {
   profile_id: string;
   full_name: string;
   role: UserRole;
+};
+
+/** Academic departments (migration 10). */
+export type DepartmentRow = {
+  id: string;
+  code: string;
+  name: string;
+  hod_name: string | null;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Curriculum / scheme-of-work topics per subject and week (migration 10). */
+export type CurriculumTopicRow = {
+  id: string;
+  subject_id: string;
+  class_id: string | null;
+  term_id: string | null;
+  week_number: number;
+  topic: string;
+  objectives: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Alumni directory records shown on the public alumni page (migration 10). */
+export type AlumniRecordRow = {
+  id: string;
+  full_name: string;
+  graduation_year: string;
+  profession: string | null;
+  email: string | null;
+  phone: string | null;
+  biography: string | null;
+  is_published: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Media library assets (migration 10). */
+export type MediaAssetRow = {
+  id: string;
+  name: string;
+  url: string;
+  type: 'image' | 'document' | 'video';
+  category: string | null;
+  uploaded_by: string | null;
+  created_at: string;
 };// ---------------------------------------------------------------------------
 // Database schema
 // ---------------------------------------------------------------------------
@@ -804,6 +856,10 @@ export type Database = {
       messages: Tbl<MessageRow, 'id' | 'created_at'>;
       notifications: Tbl<NotificationRow, 'id' | 'created_at'>;
       audit_logs: Tbl<AuditLogRow, 'id' | 'created_at'>;
+      departments: Tbl<DepartmentRow, 'id' | 'created_at' | 'updated_at'>;
+      curriculum_topics: Tbl<CurriculumTopicRow, 'id' | 'created_at' | 'updated_at'>;
+      alumni_records: Tbl<AlumniRecordRow, 'id' | 'created_at' | 'updated_at'>;
+      media_assets: Tbl<MediaAssetRow, 'id' | 'created_at'>;
     };
     Views: {
       staff_directory_public: Tbl<StaffDirectoryPublicRow>;

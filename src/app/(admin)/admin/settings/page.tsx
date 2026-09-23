@@ -1,172 +1,99 @@
-'use client';
+﻿import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, EmptyState } from '@/lib/admin/ui';
+import { saveSiteSetting } from '@/lib/admin/content-actions';
+import { formatDateTime } from '@/lib/format';
 
-import { useState } from 'react';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function AdminSettingsPage() {
-  const [schoolName, setSchoolName] = useState('Jasmine Exclusive School');
-  const [motto, setMotto] = useState('Diligence for Excellence');
-  const [phone, setPhone] = useState('+234 806 078 2404');
-  const [email, setEmail] = useState('jasmineexclusiveschool@gmail.com');
-  const [addr1, setAddr1] = useState('12 Aitamegbe Street, Off Narrow Way Street, Off Reliance, Aduwawa, Benin City, Edo State.');
-  const [addr2, setAddr2] = useState('7 Asemota Street, Off College Road, Aduwawa, Benin City, Edo State.');
-  const [facebook, setFacebook] = useState('https://facebook.com/jasmineexclusiveschool');
-  const [instagram, setInstagram] = useState('https://instagram.com/jasmineexclusiveschool');
-  const [whatsapp, setWhatsapp] = useState('+234 806 078 2404');
-  const [youtube, setYoutube] = useState('https://youtube.com/@jasmineexclusiveschool');
-  const [msg, setMsg] = useState('');
+type SP = Record<string, string | string[] | undefined>;
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    logAuditEvent('Site Settings Saved', 'System', 'Updated institutional contact details, campus addresses, and social links');
-    setMsg('System configuration and contact settings updated successfully!');
-    setTimeout(() => setMsg(''), 3000);
-  };
+export default async function AdminSettingsPage({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const sp = await searchParams;
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('site_settings')
+    .select('key, value, label, group_name, updated_at')
+    .order('group_name')
+    .order('key')
+    .limit(300);
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Site settings" />
+        <div className="alert-danger">Failed to load settings: {error.message}</div>
+      </div>
+    );
+  }
+
+  type Setting = { key: string; value: unknown; label: string | null; group_name: string; updated_at: string };
+  const rows = (data ?? []) as unknown as Setting[];
+  const display = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded">
-        <h1 className="text-2xl font-bold text-[var(--primary-dark)]">Global Institutional Settings & Social Links</h1>
-        <p className="text-xs text-[var(--muted-text)]">
-          Manage public school details, campus location addresses, official phone numbers, and social media URLs.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Site settings"
+        description="Key/value configuration used by the public site (school name, contact, stats, homepage copy)."
+      />
+      <Flash ok={sp.ok} err={sp.err} />
 
-      {msg && <div className="p-3 bg-green-50 border border-green-200 text-green-800 font-bold rounded">{msg}</div>}
-
-      <form onSubmit={handleSave} className="space-y-6">
-        {/* Core School Branding */}
-        <div className="bg-white p-6 border border-[var(--border)] rounded space-y-4">
-          <h2 className="text-base font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2 flex items-center gap-2">
-            <i className="bi bi-building text-[var(--primary)]"></i>
-            <span>School Identification</span>
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block font-semibold mb-1">Official School Name *</label>
-              <input
-                type="text"
-                required
-                value={schoolName}
-                onChange={(e) => setSchoolName(e.target.value)}
-                className="w-full p-2 border border-[var(--border)] rounded font-bold"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">School Motto *</label>
-              <input
-                type="text"
-                required
-                value={motto}
-                onChange={(e) => setMotto(e.target.value)}
-                className="w-full p-2 border border-[var(--border)] rounded italic"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Primary Phone Number *</label>
-              <input
-                type="text"
-                required
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full p-2 border border-[var(--border)] rounded font-semibold"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Official Contact Email *</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full p-2 border border-[var(--border)] rounded font-mono"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Campus Addresses */}
-        <div className="bg-white p-6 border border-[var(--border)] rounded space-y-4">
-          <h2 className="text-base font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2 flex items-center gap-2">
-            <i className="bi bi-geo-alt-fill text-[var(--primary)]"></i>
-            <span>Campus Location Addresses</span>
-          </h2>
-          <div className="space-y-3">
-            <div>
-              <label className="block font-semibold mb-1">Primary Campus Address *</label>
-              <textarea
-                rows={2}
-                required
-                value={addr1}
-                onChange={(e) => setAddr1(e.target.value)}
-                className="w-full p-2 border border-[var(--border)] rounded"
-              ></textarea>
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Annex Campus Address *</label>
-              <textarea
-                rows={2}
-                required
-                value={addr2}
-                onChange={(e) => setAddr2(e.target.value)}
-                className="w-full p-2 border border-[var(--border)] rounded"
-              ></textarea>
-            </div>
-          </div>
-        </div>
-
-        {/* Social Media Links */}
-        <div className="bg-white p-6 border border-[var(--border)] rounded space-y-4">
-          <h2 className="text-base font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2 flex items-center gap-2">
-            <i className="bi bi-share-fill text-[var(--primary)]"></i>
-            <span>Social Media Channels</span>
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block font-semibold mb-1">Facebook URL</label>
-              <input
-                type="text"
-                value={facebook}
-                onChange={(e) => setFacebook(e.target.value)}
-                className="w-full p-2 border border-[var(--border)] rounded font-mono"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">Instagram URL</label>
-              <input
-                type="text"
-                value={instagram}
-                onChange={(e) => setInstagram(e.target.value)}
-                className="w-full p-2 border border-[var(--border)] rounded font-mono"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">WhatsApp Hotline</label>
-              <input
-                type="text"
-                value={whatsapp}
-                onChange={(e) => setWhatsapp(e.target.value)}
-                className="w-full p-2 border border-[var(--border)] rounded font-mono"
-              />
-            </div>
-            <div>
-              <label className="block font-semibold mb-1">YouTube Channel URL</label>
-              <input
-                type="text"
-                value={youtube}
-                onChange={(e) => setYoutube(e.target.value)}
-                className="w-full p-2 border border-[var(--border)] rounded font-mono"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex justify-end">
-          <button type="submit" className="px-6 py-2.5 bg-[var(--primary)] text-white text-xs font-bold rounded hover:bg-[var(--primary-dark)]">
-            Save System Settings
+      <form action={saveSiteSetting} className="card grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium text-slate-600">Key *</span>
+          <input name="key" required className="input-field" placeholder="school_motto" />
+        </label>
+        <label className="block text-sm lg:col-span-3">
+          <span className="mb-1 block font-medium text-slate-600">Value * (plain text or JSON)</span>
+          <input name="value" required className="input-field" placeholder="Diligence for Excellence" />
+        </label>
+        <div className="flex items-end">
+          <button type="submit" className="btn-primary w-full">
+            Save setting
           </button>
         </div>
       </form>
+
+      {rows.length === 0 ? (
+        <EmptyState message="No settings saved yet — add the first one above." />
+      ) : (
+        <div className="card overflow-x-auto p-0">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Value</th>
+                <th>Group</th>
+                <th>Updated</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((s) => (
+                <tr key={s.key}>
+                  <td className="font-mono text-sm font-medium text-slate-900">{s.key}</td>
+                  <td className="max-w-[24rem] truncate text-slate-600">{display(s.value)}</td>
+                  <td className="text-slate-500">{s.group_name}</td>
+                  <td className="text-slate-400">{formatDateTime(s.updated_at)}</td>
+                  <td className="text-right">
+                    <form action={saveSiteSetting} className="flex justify-end gap-2">
+                      <input type="hidden" name="key" value={s.key} />
+                      <input name="value" defaultValue={display(s.value)} className="input-field max-w-[16rem]" />
+                      <button type="submit" className="btn-secondary">
+                        Update
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

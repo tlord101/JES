@@ -1,138 +1,146 @@
-'use client';
+﻿import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, StatusBadge } from '@/lib/admin/ui';
+import { formatDate } from '@/lib/format';
 
-import { useState, use } from 'react';
-import Link from 'next/link';
-import { studentsStore, StudentRecord } from '@/lib/cmsStore';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function StudentDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const studentId = resolvedParams.id;
+type SP = Record<string, string | string[] | undefined>;
 
-  const student = studentsStore.find((s) => s.id === studentId) || studentsStore[0];
+export default async function StudentDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<SP>;
+}) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const { id } = await params;
+  const sp = await searchParams;
+  const supabase = await createClient();
 
-  const [name, setName] = useState(student.name);
-  const [admissionNo, setAdmissionNo] = useState(student.admissionNo);
-  const [studentClass, setStudentClass] = useState(student.class);
-  const [gender, setGender] = useState<'Male' | 'Female'>(student.gender);
-  const [parentName, setParentName] = useState(student.parentName);
-  const [status, setStatus] = useState(student.status);
-  const [msg, setMsg] = useState('');
+  const { data: student, error } = await supabase
+    .from('students')
+    .select(
+      `id, admission_no, gender, date_of_birth, address, blood_group, genotype,
+       medical_notes, admitted_on, status,
+       profile:profiles(id, full_name, email, phone, avatar_url),
+       class:classes(id, name, arm),
+       guardians:parent_student(
+         relationship, is_primary,
+         parent:parents(id, occupation, relationship, profile:profiles(full_name, email, phone))
+       )`,
+    )
+    .eq('id', id)
+    .maybeSingle();
 
-  const handleUpdate = (e: React.FormEvent) => {
-    e.preventDefault();
-    student.name = name;
-    student.admissionNo = admissionNo;
-    student.class = studentClass;
-    student.gender = gender;
-    student.parentName = parentName;
-    student.status = status;
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Student" />
+        <div className="alert-danger">Failed to load student: {error.message}</div>
+      </div>
+    );
+  }
+  if (!student) notFound();
 
-    logAuditEvent('Student Record Updated', 'Student', `Updated academic profile for ${student.name} (${student.admissionNo})`);
-    setMsg('Student profile updated successfully!');
-    setTimeout(() => setMsg(''), 3000);
+  const s = student as unknown as {
+    id: string;
+    admission_no: string;
+    gender: string | null;
+    date_of_birth: string | null;
+    address: string | null;
+    blood_group: string | null;
+    genotype: string | null;
+    medical_notes: string | null;
+    admitted_on: string;
+    status: string;
+    profile: { id: string; full_name: string; email: string; phone: string | null; avatar_url: string | null } | null;
+    class: { id: string; name: string; arm: string | null } | null;
+    guardians: {
+      relationship: string;
+      is_primary: boolean;
+      parent: { id: string; occupation: string | null; profile: { full_name: string; email: string; phone: string | null } | null } | null;
+    }[];
   };
 
+  const facts: [string, string][] = [
+    ['Admission no', s.admission_no],
+    ['Class', s.class ? `${s.class.name}${s.class.arm ? ' ' + s.class.arm : ''}` : 'Not assigned'],
+    ['Gender', s.gender ?? '—'],
+    ['Date of birth', formatDate(s.date_of_birth)],
+    ['Admitted on', formatDate(s.admitted_on)],
+    ['Email', s.profile?.email ?? '—'],
+    ['Phone', s.profile?.phone ?? '—'],
+    ['Blood group', s.blood_group ?? '—'],
+    ['Genotype', s.genotype ?? '—'],
+    ['Address', s.address ?? '—'],
+    ['Medical notes', s.medical_notes ?? '—'],
+  ];
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex justify-between items-center">
-        <div>
-          <Link href="/admin/students" className="text-xs font-bold text-[var(--primary)] hover:underline">
-            ← Back to Student Roster
-          </Link>
-          <h1 className="text-xl font-bold text-[var(--primary-dark)] mt-1">{student.name}</h1>
-          <p className="text-xs text-[var(--muted-text)] font-mono">Admission No: {student.admissionNo}</p>
-        </div>
-        <span className="px-3 py-1 bg-green-100 text-green-800 font-bold text-xs rounded">
-          {student.status}
-        </span>
+    <div className="space-y-6">
+      <PageHeader
+        title={s.profile?.full_name ?? 'Student'}
+        description={`Student record · ${s.admission_no}`}
+        actions={
+          <div className="flex gap-2">
+            <Link href={`/admin/results?student=${s.id}`} className="btn-secondary">
+              Results
+            </Link>
+            <Link href={`/admin/students`} className="btn-secondary">
+              Back to students
+            </Link>
+          </div>
+        }
+      />
+      <Flash ok={sp.ok} err={sp.err} />
+
+      <div className="flex items-center gap-3">
+        <StatusBadge status={s.status} />
+        <span className="text-sm text-slate-500">Profile ID: {s.profile?.id ?? '—'}</span>
       </div>
 
-      {msg && <div className="p-3 bg-green-50 border border-green-200 text-green-800 text-xs font-bold rounded">{msg}</div>}
+      <section className="card">
+        <h2 className="mb-4 text-sm font-semibold text-slate-900">Details</h2>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+          {facts.map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
+              <dd className="text-sm text-slate-800">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
 
-      <form onSubmit={handleUpdate} className="bg-white p-6 border border-[var(--border)] rounded space-y-4 text-xs">
-        <h2 className="text-base font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2">
-          Academic & Personal Record
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block font-semibold mb-1">Student Full Name</label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Admission Number</label>
-            <input
-              type="text"
-              required
-              value={admissionNo}
-              onChange={(e) => setAdmissionNo(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Class Placement</label>
-            <input
-              type="text"
-              required
-              value={studentClass}
-              onChange={(e) => setStudentClass(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded font-bold"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Gender</label>
-            <select
-              value={gender}
-              onChange={(e) => setGender(e.target.value as 'Male' | 'Female')}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            >
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Parent / Guardian Name</label>
-            <input
-              type="text"
-              value={parentName}
-              onChange={(e) => setParentName(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Enrollment Status</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as any)}
-              className="w-full p-2 border border-[var(--border)] rounded font-bold"
-            >
-              <option value="Active">Active Enrolled</option>
-              <option value="Graduated">Graduated Alumni</option>
-              <option value="Suspended">Suspended</option>
-              <option value="Withdrawn">Withdrawn</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="pt-2 flex justify-end">
-          <button type="submit" className="px-5 py-2 bg-[var(--primary)] text-white font-bold rounded">
-            Save Student Changes
-          </button>
-        </div>
-      </form>
+      <section className="card">
+        <h2 className="mb-4 text-sm font-semibold text-slate-900">Guardians</h2>
+        {s.guardians.length === 0 ? (
+          <p className="text-sm text-slate-500">No guardian linked yet.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {s.guardians.map((g, i) => (
+              <li key={i} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <div>
+                  <span className="font-medium text-slate-800">
+                    {g.parent?.profile?.full_name ?? 'Unknown'}
+                  </span>
+                  <span className="ml-2 text-slate-500">
+                    {g.relationship}
+                    {g.is_primary ? ' · primary' : ''}
+                  </span>
+                </div>
+                <div className="text-slate-500">
+                  {g.parent?.profile?.email} · {g.parent?.profile?.phone ?? 'no phone'}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

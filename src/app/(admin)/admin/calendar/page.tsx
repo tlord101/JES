@@ -1,148 +1,143 @@
-'use client';
+﻿import Link from 'next/link';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, EmptyState, StatusBadge, Badge } from '@/lib/admin/ui';
+import { formatDate, formatDateTime } from '@/lib/format';
 
-import { useState } from 'react';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-interface CalendarTermEntry {
-  id: string;
-  term: string;
-  resumptionDate: string;
-  vacationDate: string;
-  examsStart: string;
-  sportsDay: string;
-  ptaMeeting: string;
-}
+export default async function AdminCalendarPage() {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const supabase = await createClient();
 
-const INITIAL_CALENDAR: CalendarTermEntry[] = [
-  {
-    id: 'cal_t1',
-    term: 'First Term (2024/2025)',
-    resumptionDate: '2024-09-09',
-    vacationDate: '2024-12-13',
-    examsStart: '2024-11-25',
-    sportsDay: '2024-11-01',
-    ptaMeeting: '2024-10-12',
-  },
-  {
-    id: 'cal_t2',
-    term: 'Second Term (2024/2025)',
-    resumptionDate: '2025-01-06',
-    vacationDate: '2025-04-11',
-    examsStart: '2025-03-24',
-    sportsDay: '2025-02-14',
-    ptaMeeting: '2025-02-22',
-  },
-  {
-    id: 'cal_t3',
-    term: 'Third Term (2024/2025)',
-    resumptionDate: '2025-04-28',
-    vacationDate: '2025-07-25',
-    examsStart: '2025-07-07',
-    sportsDay: '2025-06-13',
-    ptaMeeting: '2025-05-31',
-  },
-];
+  const [{ data: events, error }, { data: terms }] = await Promise.all([
+    supabase
+      .from('events')
+      .select('id, title, description, starts_at, ends_at, location, category, status')
+      .order('starts_at', { ascending: false })
+      .limit(100),
+    supabase
+      .from('terms')
+      .select('id, name, start_date, end_date, is_current, year:academic_years(name)')
+      .order('start_date', { ascending: false })
+      .limit(30),
+  ]);
 
-export default function AdminCalendarPage() {
-  const [calendar, setCalendar] = useState<CalendarTermEntry[]>(INITIAL_CALENDAR);
-  const [msg, setMsg] = useState('');
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="School calendar" />
+        <div className="alert-danger">Failed to load calendar: {error.message}</div>
+      </div>
+    );
+  }
 
-  const handleDateChange = (id: string, field: keyof CalendarTermEntry, value: string) => {
-    const target = calendar.find((c) => c.id === id);
-    if (target) {
-      (target as any)[field] = value;
-      setCalendar([...calendar]);
-    }
-  };
+  const eventRows = (events ?? []) as unknown as {
+    id: string;
+    title: string;
+    description: string | null;
+    starts_at: string;
+    ends_at: string | null;
+    location: string | null;
+    category: string | null;
+    status: string;
+  }[];
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    logAuditEvent('Academic Calendar Updated', 'CMS', 'Updated term dates and resumption schedules');
-    setMsg('Academic calendar published successfully!');
-    setTimeout(() => setMsg(''), 3000);
-  };
+  const termRows = (terms ?? []) as unknown as {
+    id: string;
+    name: string;
+    start_date: string;
+    end_date: string;
+    is_current: boolean;
+    year: { name: string } | null;
+  }[];
+
+  const now = Date.now();
+  const upcoming = eventRows.filter((e) => new Date(e.starts_at).getTime() >= now);
+  const past = eventRows.filter((e) => new Date(e.starts_at).getTime() < now);
 
   return (
-    <div className="space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--primary-dark)]">Academic Session Calendar CMS</h1>
-          <p className="text-xs text-[var(--muted-text)]">
-            Manage term resumption, mid-term breaks, exam dates, sports days, PTA meetings, and closing schedules.
-          </p>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="School calendar"
+        description="Academic terms and the events timeline. Manage events from the Events section."
+        actions={
+          <Link href="/admin/events" className="btn-primary">
+            Manage events
+          </Link>
+        }
+      />
+      <Flash />
 
-      {msg && <div className="p-3 bg-green-50 border border-green-200 text-green-800 font-bold rounded">{msg}</div>}
-
-      <form onSubmit={handleSave} className="space-y-6">
-        {calendar.map((termItem) => (
-          <div key={termItem.id} className="bg-white p-6 border border-[var(--border)] rounded space-y-4">
-            <h2 className="text-base font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2 flex items-center justify-between">
-              <span>{termItem.term}</span>
-              <span className="text-xs text-[var(--primary)] font-mono">Academic Year 2024/2025</span>
-            </h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-              <div>
-                <label className="block font-semibold mb-1">Resumption Date</label>
-                <input
-                  type="date"
-                  value={termItem.resumptionDate}
-                  onChange={(e) => handleDateChange(termItem.id, 'resumptionDate', e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded font-mono"
-                />
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Academic terms</h2>
+        {termRows.length === 0 ? (
+          <EmptyState message="No academic terms yet — create them under Academic sessions." cta={{ href: '/admin/terms', label: 'Manage terms' }} />
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {termRows.map((t) => (
+              <div key={t.id} className="card">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold text-slate-900">
+                    {t.year?.name ? `${t.year.name} · ` : ''}
+                    {t.name}
+                  </div>
+                  {t.is_current ? <Badge tone="success">Current</Badge> : null}
+                </div>
+                <div className="mt-1 text-sm text-slate-500">
+                  {formatDate(t.start_date)} → {formatDate(t.end_date)}
+                </div>
               </div>
-
-              <div>
-                <label className="block font-semibold mb-1">Exams Start Date</label>
-                <input
-                  type="date"
-                  value={termItem.examsStart}
-                  onChange={(e) => handleDateChange(termItem.id, 'examsStart', e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1">Sports Day</label>
-                <input
-                  type="date"
-                  value={termItem.sportsDay}
-                  onChange={(e) => handleDateChange(termItem.id, 'sportsDay', e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1">PTA Meeting</label>
-                <input
-                  type="date"
-                  value={termItem.ptaMeeting}
-                  onChange={(e) => handleDateChange(termItem.id, 'ptaMeeting', e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1">Vacation / Closing Date</label>
-                <input
-                  type="date"
-                  value={termItem.vacationDate}
-                  onChange={(e) => handleDateChange(termItem.id, 'vacationDate', e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded font-mono"
-                />
-              </div>
-            </div>
+            ))}
           </div>
-        ))}
+        )}
+      </section>
 
-        <div className="flex justify-end">
-          <button type="submit" className="px-6 py-2.5 bg-[var(--primary)] text-white text-xs font-bold rounded hover:bg-[var(--primary-dark)]">
-            Save Academic Calendar
-          </button>
-        </div>
-      </form>
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Upcoming events ({upcoming.length})
+        </h2>
+        {upcoming.length === 0 ? (
+          <EmptyState message="No upcoming events." cta={{ href: '/admin/events', label: 'Add an event' }} />
+        ) : (
+          <div className="space-y-3">
+            {upcoming.map((e) => (
+              <article key={e.id} className="card">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-slate-900">{e.title}</h3>
+                      <StatusBadge status={e.status} />
+                      {e.category ? <Badge tone="info">{e.category}</Badge> : null}
+                    </div>
+                    {e.description ? <p className="mt-1 text-sm text-slate-600">{e.description}</p> : null}
+                  </div>
+                  <div className="text-right text-sm text-slate-500">
+                    <div>{formatDateTime(e.starts_at)}</div>
+                    {e.ends_at ? <div>→ {formatDateTime(e.ends_at)}</div> : null}
+                    {e.location ? <div className="text-slate-400">{e.location}</div> : null}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {past.length > 0 ? (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Past events ({past.length})</h2>
+          <div className="card divide-y divide-slate-100">
+            {past.slice(0, 20).map((e) => (
+              <div key={e.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <span className="text-slate-700">{e.title}</span>
+                <span className="text-slate-400">{formatDate(e.starts_at)}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

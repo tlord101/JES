@@ -1,81 +1,115 @@
-'use client';
+﻿import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, EmptyState, Badge } from '@/lib/admin/ui';
+import { saveCircular } from '@/lib/admin/content-actions';
+import { formatDateTime } from '@/lib/format';
 
-import { useState } from 'react';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function AdminPTAPage() {
-  const [newsList, setNewsList] = useState([
-    { id: '1', title: 'PTA Exco Resolutions on Campus Bus Acquisition', date: '2025-01-18', status: 'Published' },
-    { id: '2', title: 'Voluntary Teacher Appreciation Endowment Fund', date: '2024-11-20', status: 'Published' },
+type SP = Record<string, string | string[] | undefined>;
+
+export default async function AdminPtaPage({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const sp = await searchParams;
+  const supabase = await createClient();
+
+  const [{ data: members, error: memberError }, { data: circulars }] = await Promise.all([
+    supabase.from('pta_members').select('id, full_name, position, email').order('full_name').limit(200),
+    supabase.from('circulars').select('id, title, description, audience, is_published, published_at, created_at').order('created_at', { ascending: false }).limit(100),
   ]);
 
-  const [title, setTitle] = useState('');
-
-  const handleAdd = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title) return;
-    const newItem = {
-      id: `${Date.now()}`,
-      title,
-      date: new Date().toISOString().substring(0, 10),
-      status: 'Published',
-    };
-    setNewsList([newItem, ...newsList]);
-    logAuditEvent('PTA Circular Published', 'CMS', `Published PTA news circular "${title}"`);
-    setTitle('');
-  };
+  const memberRows = ((members ?? []) as unknown as { id: string; full_name: string; position: string; email: string | null }[]) ?? [];
+  const circularRows = ((circulars ?? []) as unknown as {
+    id: string;
+    title: string;
+    description: string | null;
+    audience: string;
+    is_published: boolean;
+    published_at: string | null;
+    created_at: string;
+  }[]) ?? [];
 
   return (
-    <div className="space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--primary-dark)]">PTA Management & Circulars</h1>
-          <p className="text-xs text-[var(--muted-text)]">
-            Publish Parent-Teacher Association announcements, executive committee notices, and general assembly agendas.
-          </p>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="PTA"
+        description="Executive committee and circulars distributed to parents."
+      />
+      <Flash ok={sp.ok} err={sp.err} />
+      {memberError ? <div className="alert-danger">Members: {memberError.message}</div> : null}
 
-      <form onSubmit={handleAdd} className="bg-white p-6 border border-[var(--border)] rounded space-y-3">
-        <h2 className="text-sm font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2">
-          Publish New PTA Circular
-        </h2>
-        <div>
-          <label className="block font-semibold mb-1">Notice / Circular Title *</label>
-          <input
-            type="text"
-            required
-            placeholder="e.g. Second Term General Assembly Agenda & Financial Report"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full p-2 border border-[var(--border)] rounded"
-          />
-        </div>
-        <div className="flex justify-end">
-          <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white font-bold rounded">
-            Post PTA Circular
-          </button>
-        </div>
-      </form>
-
-      <div className="bg-white border border-[var(--border)] rounded overflow-hidden">
-        <div className="p-4 font-bold text-sm text-[var(--primary-dark)] border-b border-[var(--border)]">
-          Recent PTA Bulletins
-        </div>
-        <div className="divide-y divide-[var(--border)]">
-          {newsList.map((item) => (
-            <div key={item.id} className="p-4 flex justify-between items-center hover:bg-[var(--soft-bg)]">
-              <div>
-                <div className="font-bold text-[var(--text)]">{item.title}</div>
-                <div className="text-[11px] text-[var(--muted-text)] font-mono">Date Published: {item.date}</div>
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Committee</h2>
+        {memberRows.length === 0 ? (
+          <EmptyState message="No PTA members recorded yet." />
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {memberRows.map((m) => (
+              <div key={m.id} className="card">
+                <div className="font-semibold text-slate-900">{m.full_name}</div>
+                <div className="text-sm text-primary-700">{m.position}</div>
+                {m.email ? <div className="mt-1 text-sm text-slate-500">{m.email}</div> : null}
               </div>
-              <span className="px-2 py-0.5 bg-green-100 text-green-800 font-bold text-[10px] rounded">
-                {item.status}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Circulars</h2>
+
+        <form action={saveCircular} className="card grid gap-4 sm:grid-cols-2">
+          <label className="block text-sm sm:col-span-2">
+            <span className="mb-1 block font-medium text-slate-600">Title *</span>
+            <input name="title" required className="input-field" placeholder="Term 2 fees deadline" />
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            <span className="mb-1 block font-medium text-slate-600">Description</span>
+            <textarea name="description" rows={3} className="input-field" />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-slate-600">Attachment URL</span>
+            <input name="file_url" className="input-field" placeholder="https://..." />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-slate-600">Audience</span>
+            <select name="audience" className="input-field">
+              <option value="everyone">Everyone</option>
+              <option value="parents">Parents</option>
+              <option value="staff">Staff</option>
+              <option value="students">Students</option>
+            </select>
+          </label>
+          <div className="sm:col-span-2">
+            <button type="submit" className="btn-primary">
+              Publish circular
+            </button>
+          </div>
+        </form>
+
+        {circularRows.length === 0 ? (
+          <EmptyState message="No circulars published yet." />
+        ) : (
+          <div className="space-y-3">
+            {circularRows.map((c) => (
+              <article key={c.id} className="card">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-slate-900">{c.title}</h3>
+                      <Badge tone={c.is_published ? 'success' : 'warning'}>{c.is_published ? 'Published' : 'Draft'}</Badge>
+                      <Badge tone="info">{c.audience}</Badge>
+                    </div>
+                    {c.description ? <p className="mt-1 text-sm text-slate-600">{c.description}</p> : null}
+                  </div>
+                  <time className="text-sm text-slate-400">{formatDateTime(c.published_at ?? c.created_at)}</time>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

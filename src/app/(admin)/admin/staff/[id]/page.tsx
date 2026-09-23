@@ -1,145 +1,150 @@
-'use client';
+﻿import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, StatusBadge } from '@/lib/admin/ui';
+import { formatDate } from '@/lib/format';
 
-import { useState, use } from 'react';
-import Link from 'next/link';
-import { staffRecordsStore } from '@/lib/cmsStore';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function StaffDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const staffId = resolvedParams.id;
+type SP = Record<string, string | string[] | undefined>;
 
-  const staff = staffRecordsStore.find((s) => s.id === staffId) || staffRecordsStore[0];
+export default async function StaffDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<SP>;
+}) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const { id } = await params;
+  const sp = await searchParams;
+  const supabase = await createClient();
 
-  const [name, setName] = useState(staff.name);
-  const [position, setPosition] = useState(staff.position);
-  const [department, setDepartment] = useState(staff.department);
-  const [subjectsStr, setSubjectsStr] = useState(staff.subjects.join(', '));
-  const [qualifications, setQualifications] = useState(staff.qualifications);
-  const [biography, setBiography] = useState(staff.biography);
-  const [status, setStatus] = useState(staff.status);
-  const [msg, setMsg] = useState('');
+  const { data: member, error } = await supabase
+    .from('staff')
+    .select(
+      `id, staff_no, position, department, qualification, biography, photo_url,
+       date_hired, is_public, status,
+       profile:profiles(id, full_name, email, phone, avatar_url, role, last_login_at),
+       subjects:staff_subjects(subject:subjects(id, name, code)),
+       classes:staff_classes(duty, class:classes(id, name, arm))`,
+    )
+    .eq('id', id)
+    .maybeSingle();
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    staff.name = name;
-    staff.position = position;
-    staff.department = department;
-    staff.subjects = subjectsStr.split(',').map((s) => s.trim());
-    staff.qualifications = qualifications;
-    staff.biography = biography;
-    staff.status = status as any;
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Staff member" />
+        <div className="alert-danger">Failed to load staff member: {error.message}</div>
+      </div>
+    );
+  }
+  if (!member) notFound();
 
-    logAuditEvent('Staff Record Updated', 'Staff', `Updated staff directory profile for ${staff.name}`);
-    setMsg('Staff profile updated successfully!');
-    setTimeout(() => setMsg(''), 3000);
+  const m = member as unknown as {
+    id: string;
+    staff_no: string;
+    position: string;
+    department: string | null;
+    qualification: string | null;
+    biography: string | null;
+    photo_url: string | null;
+    date_hired: string | null;
+    is_public: boolean;
+    status: string;
+    profile: { id: string; full_name: string; email: string; phone: string | null; role: string; last_login_at: string | null } | null;
+    subjects: { subject: { id: string; name: string; code: string | null } | null }[];
+    classes: { duty: string; class: { id: string; name: string; arm: string | null } | null }[];
   };
 
+  const facts: [string, string][] = [
+    ['Staff no', m.staff_no],
+    ['Position', m.position],
+    ['Department', m.department ?? '—'],
+    ['Role', m.profile?.role ?? '—'],
+    ['Qualification', m.qualification ?? '—'],
+    ['Date hired', formatDate(m.date_hired)],
+    ['Email', m.profile?.email ?? '—'],
+    ['Phone', m.profile?.phone ?? '—'],
+    ['Last sign-in', m.profile?.last_login_at ? new Date(m.profile.last_login_at).toLocaleString() : 'Never'],
+    ['Public directory', m.is_public ? 'Listed' : 'Hidden'],
+  ];
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex justify-between items-center">
-        <div>
-          <Link href="/admin/staff" className="font-bold text-[var(--primary)] hover:underline">
-            ← Back to Staff Directory
+    <div className="space-y-6">
+      <PageHeader
+        title={m.profile?.full_name ?? 'Staff member'}
+        description={`Staff record · ${m.staff_no}`}
+        actions={
+          <Link href="/admin/staff" className="btn-secondary">
+            Back to staff
           </Link>
-          <h1 className="text-xl font-bold text-[var(--primary-dark)] mt-1">{staff.name}</h1>
-          <p className="text-[var(--muted-text)] font-semibold">{staff.position}</p>
-        </div>
-        <span className="px-3 py-1 bg-green-100 text-green-800 font-bold text-xs rounded">
-          {staff.status}
-        </span>
+        }
+      />
+      <Flash ok={sp.ok} err={sp.err} />
+
+      <div className="flex items-center gap-3">
+        <StatusBadge status={m.status} />
+        <a href={`/admin/users/${m.profile?.id}`} className="text-sm text-primary-600 hover:underline">
+          Manage account
+        </a>
       </div>
 
-      {msg && <div className="p-3 bg-green-50 border border-green-200 text-green-800 font-bold rounded">{msg}</div>}
+      <section className="card">
+        <h2 className="mb-4 text-sm font-semibold text-slate-900">Details</h2>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+          {facts.map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
+              <dd className="text-sm text-slate-800">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        {m.biography && (
+          <p className="mt-4 whitespace-pre-line border-t border-slate-100 pt-4 text-sm text-slate-600">
+            {m.biography}
+          </p>
+        )}
+      </section>
 
-      <form onSubmit={handleSave} className="bg-white p-6 border border-[var(--border)] rounded space-y-4">
-        <h2 className="text-base font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2">
-          Faculty Details & Departmental Allocation
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block font-semibold mb-1">Staff Full Name</label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Position / Designation</label>
-            <input
-              type="text"
-              required
-              value={position}
-              onChange={(e) => setPosition(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Department</label>
-            <input
-              type="text"
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded font-semibold"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Assigned Subjects (Comma-separated)</label>
-            <input
-              type="text"
-              value={subjectsStr}
-              onChange={(e) => setSubjectsStr(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Qualifications</label>
-            <input
-              type="text"
-              value={qualifications}
-              onChange={(e) => setQualifications(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Staff Status</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as any)}
-              className="w-full p-2 border border-[var(--border)] rounded font-bold"
-            >
-              <option value="Active">Active Faculty</option>
-              <option value="On Leave">On Leave</option>
-              <option value="Resigned">Resigned</option>
-            </select>
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="block font-semibold mb-1">Professional Biography</label>
-            <textarea
-              rows={4}
-              value={biography}
-              onChange={(e) => setBiography(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            ></textarea>
-          </div>
-        </div>
-
-        <div className="pt-2 flex justify-end">
-          <button type="submit" className="px-5 py-2 bg-[var(--primary)] text-white font-bold rounded">
-            Save Staff Profile
-          </button>
-        </div>
-      </form>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="card">
+          <h2 className="mb-3 text-sm font-semibold text-slate-900">Subjects</h2>
+          {m.subjects.length === 0 ? (
+            <p className="text-sm text-slate-500">No subjects assigned.</p>
+          ) : (
+            <ul className="flex flex-wrap gap-2">
+              {m.subjects.map((row, i) => (
+                <li key={i} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700">
+                  {row.subject?.name}
+                  {row.subject?.code ? ` (${row.subject.code})` : ''}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section className="card">
+          <h2 className="mb-3 text-sm font-semibold text-slate-900">Class duties</h2>
+          {m.classes.length === 0 ? (
+            <p className="text-sm text-slate-500">No class duties assigned.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100 text-sm">
+              {m.classes.map((row, i) => (
+                <li key={i} className="flex justify-between py-2">
+                  <span className="text-slate-700">
+                    {row.class?.name}
+                    {row.class?.arm ? ' ' + row.class.arm : ''}
+                  </span>
+                  <span className="capitalize text-slate-500">{row.duty}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

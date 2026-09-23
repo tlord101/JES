@@ -1,147 +1,62 @@
-'use client';
+﻿import { requireRole } from '@/lib/auth/session';
+import { createClient } from '@/lib/supabase/server';
+import { saveDepartment, deleteAdminRow } from '@/lib/admin/actions';
+import { Flash } from '@/lib/admin/ui';
 
-import { useState } from 'react';
-import { departmentsStore, Department } from '@/lib/academicStore';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function AdminDepartmentsPage() {
-  const [departments, setDepartments] = useState<Department[]>([...departmentsStore]);
-  const [showModal, setShowModal] = useState(false);
-
-  const [code, setCode] = useState('');
-  const [name, setName] = useState('');
-  const [hodName, setHodName] = useState('Mr. Osagie Aghedo');
-  const [description, setDescription] = useState('');
-
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!code || !name) return;
-
-    const newDept: Department = {
-      id: `dept_${Date.now()}`,
-      code: code.toUpperCase(),
-      name,
-      hodName,
-      description,
-    };
-
-    departmentsStore.push(newDept);
-    setDepartments([...departmentsStore]);
-    logAuditEvent('Department Created', 'System', `Created academic department ${name} (${code})`);
-
-    setCode('');
-    setName('');
-    setDescription('');
-    setShowModal(false);
-  };
+export default async function DepartmentsPage({ searchParams }: { searchParams: Promise<{ ok?: string; err?: string }> }) {
+  await requireRole(['super_admin', 'admin']);
+  const sp = await searchParams;
+  const supabase = await createClient();
+  const { data: departments } = await supabase.from('departments').select('*').order('name');
 
   return (
     <div className="space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--primary-dark)]">Academic Departments Directory</h1>
-          <p className="text-xs text-[var(--muted-text)]">
-            Manage academic faculties, departmental codes, and appointed Heads of Department (HOD).
-          </p>
-        </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="px-4 py-2 bg-[var(--primary)] text-white text-xs font-bold rounded hover:bg-[var(--primary-dark)] transition-colors flex items-center gap-1.5"
-        >
-          <i className="bi bi-diagram-3-fill"></i>
-          <span>Create Department</span>
-        </button>
+      <Flash ok={sp.ok} err={sp.err} />
+      <div className="bg-white p-6 border border-[var(--border)] rounded">
+        <h1 className="text-2xl font-bold text-[var(--primary-dark)]">Departments</h1>
+        <p className="text-xs text-[var(--muted-text)]">Academic departments and their heads of department.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {departments.map((d) => (
-          <div key={d.id} className="bg-white p-5 border border-[var(--border)] rounded space-y-2">
-            <div className="flex justify-between items-center border-b border-[var(--border)] pb-2">
-              <span className="font-bold text-base text-[var(--primary-dark)]">{d.name}</span>
-              <span className="px-2.5 py-0.5 bg-[var(--primary-light)] text-[var(--primary-dark)] font-mono font-bold text-[10px] rounded">
-                {d.code}
-              </span>
-            </div>
-            <div>
-              <span className="font-semibold text-[var(--muted-text)]">Head of Department (HOD):</span>{' '}
-              <strong className="text-[var(--text)]">{d.hodName}</strong>
-            </div>
-            <p className="text-slate-600 leading-relaxed pt-1">{d.description}</p>
-          </div>
-        ))}
-      </div>
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white p-6 border border-[var(--border)] rounded max-w-md w-full space-y-4">
-            <div className="flex justify-between items-center border-b border-[var(--border)] pb-2">
-              <h2 className="text-base font-bold text-[var(--primary-dark)]">Create Department</h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-black">
-                <i className="bi bi-x-lg"></i>
-              </button>
-            </div>
-            <form onSubmit={handleCreate} className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-semibold mb-1">Dept Code *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="MTH"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    className="w-full p-2 border border-[var(--border)] rounded font-mono font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">Head of Dept (HOD)</label>
-                  <input
-                    type="text"
-                    value={hodName}
-                    onChange={(e) => setHodName(e.target.value)}
-                    className="w-full p-2 border border-[var(--border)] rounded font-semibold"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1">Department Name *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Mathematics & Computing"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1">Description & Subject Scope</label>
-                <textarea
-                  rows={3}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full p-2 border border-[var(--border)] rounded"
-                ></textarea>
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 border border-[var(--border)] font-bold rounded"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white font-bold rounded">
-                  Save Department
-                </button>
-              </div>
-            </form>
-          </div>
+      <form action={saveDepartment} className="bg-white p-6 border border-[var(--border)] rounded space-y-3">
+        <h2 className="text-sm font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2">Add Department</h2>
+        <div className="grid md:grid-cols-4 gap-3">
+          <input name="code" required placeholder="Code e.g. MTH" className="p-2 border border-[var(--border)] rounded font-bold uppercase" />
+          <input name="name" required placeholder="Department name" className="p-2 border border-[var(--border)] rounded font-bold" />
+          <input name="hod_name" placeholder="HOD name" className="p-2 border border-[var(--border)] rounded" />
+          <label className="flex items-center gap-2 font-semibold"><input type="checkbox" name="is_active" defaultChecked /> Active</label>
         </div>
-      )}
+        <textarea name="description" rows={2} placeholder="Description (optional)" className="w-full p-2 border border-[var(--border)] rounded"></textarea>
+        <button className="px-4 py-2 bg-[var(--primary)] text-white font-bold rounded">Save Department</button>
+      </form>
+
+      <div className="bg-white border border-[var(--border)] rounded overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead><tr className="border-b border-[var(--border)] bg-[var(--soft-bg)] font-semibold">
+            <th className="p-3">Code</th><th className="p-3">Name</th><th className="p-3">HOD</th><th className="p-3">Status</th><th className="p-3"></th>
+          </tr></thead>
+          <tbody className="divide-y divide-[var(--border)]">
+            {(departments ?? []).map((d: Record<string, unknown>) => (
+              <tr key={String(d.id)} className="hover:bg-[var(--soft-bg)]">
+                <td className="p-3 font-mono font-bold text-[var(--primary-dark)]">{String(d.code)}</td>
+                <td className="p-3 font-bold">{String(d.name)}</td>
+                <td className="p-3">{String(d.hod_name ?? '—')}</td>
+                <td className="p-3">{d.is_active ? <span className="px-2 py-0.5 bg-green-100 text-green-800 font-bold text-[10px] rounded">Active</span> : <span className="px-2 py-0.5 bg-gray-100 text-gray-700 font-bold text-[10px] rounded">Inactive</span>}</td>
+                <td className="p-3">
+                  <form action={deleteAdminRow}>
+                    <input type="hidden" name="table" value="departments" />
+                    <input type="hidden" name="id" value={String(d.id)} />
+                    <input type="hidden" name="path" value="/admin/departments" />
+                    <button className="text-red-600 font-bold hover:underline">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            ))}
+            {!departments?.length && <tr><td className="p-4 text-[var(--muted-text)]" colSpan={5}>No departments yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

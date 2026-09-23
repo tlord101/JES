@@ -1,134 +1,142 @@
-'use client';
+﻿import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, EmptyState, Badge } from '@/lib/admin/ui';
 
-import { useState, use } from 'react';
-import Link from 'next/link';
-import { subjectsStore, departmentsStore } from '@/lib/academicStore';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function AdminSubjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const subjectId = resolvedParams.id;
+type SP = Record<string, string | string[] | undefined>;
 
-  const subject = subjectsStore.find((s) => s.id === subjectId) || subjectsStore[0];
+export default async function AdminSubjectDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<SP>;
+}) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const { id } = await params;
+  const sp = await searchParams;
+  const supabase = await createClient();
 
-  const [code, setCode] = useState(subject.code);
-  const [name, setName] = useState(subject.name);
-  const [description, setDescription] = useState(subject.description);
-  const [targetClass, setTargetClass] = useState(subject.targetClass);
-  const [teacherName, setTeacherName] = useState(subject.teacherName);
-  const [departmentId, setDepartmentId] = useState(subject.departmentId);
-  const [msg, setMsg] = useState('');
+  const [{ data: subject }, { data: offerings }, { data: staffLinks }] = await Promise.all([
+    supabase.from('subjects').select('id, code, name, department, level, description, is_active').eq('id', id).maybeSingle(),
+    supabase
+      .from('class_subjects')
+      .select('id, class:classes(id, name, arm), teacher:profiles(full_name)')
+      .eq('subject_id', id),
+    supabase
+      .from('staff_subjects')
+      .select('staff:staff(id, staff_no, position, profile:profiles(full_name))')
+      .eq('subject_id', id),
+  ]);
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    subject.code = code;
-    subject.name = name;
-    subject.description = description;
-    subject.targetClass = targetClass;
-    subject.teacherName = teacherName;
-    subject.departmentId = departmentId;
+  if (!subject) notFound();
 
-    logAuditEvent('Subject Updated', 'System', `Updated subject details for ${subject.name} (${subject.code})`);
-    setMsg('Subject details updated successfully!');
-    setTimeout(() => setMsg(''), 3000);
+  const sub = subject as unknown as {
+    id: string;
+    code: string;
+    name: string;
+    department: string | null;
+    level: string | null;
+    description: string | null;
+    is_active: boolean;
   };
+  const classRows = ((offerings ?? []) as unknown as {
+    id: string;
+    class: { id: string; name: string; arm: string | null } | null;
+    teacher: { full_name: string } | null;
+  }[]) ?? [];
+  const staffRows = ((staffLinks ?? []) as unknown as {
+    staff: { id: string; staff_no: string; position: string; profile: { full_name: string } | null } | null;
+  }[]) ?? [];
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex justify-between items-center">
-        <div>
-          <Link href="/admin/subjects" className="font-bold text-[var(--primary)] hover:underline">
-            ← Back to Subjects Directory
+    <div className="space-y-6">
+      <PageHeader
+        title={sub.name}
+        description={`${sub.code}${sub.department ? ` · ${sub.department}` : ''}${sub.level ? ` · ${sub.level.replace('_', ' ')}` : ''}`}
+        actions={
+          <Link href="/admin/subjects" className="btn-secondary">
+            ← All subjects
           </Link>
-          <h1 className="text-xl font-bold text-[var(--primary-dark)] mt-1">{subject.name}</h1>
-          <p className="text-[var(--muted-text)] font-mono">Code: {subject.code}</p>
+        }
+      />
+      <Flash ok={sp.ok} err={sp.err} />
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="card">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Status</div>
+          <div className="mt-2">
+            <Badge tone={sub.is_active ? 'success' : 'neutral'}>{sub.is_active ? 'Active' : 'Inactive'}</Badge>
+          </div>
+        </div>
+        <div className="card">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Classes offering</div>
+          <div className="mt-1 text-3xl font-bold text-slate-900">{classRows.length}</div>
+        </div>
+        <div className="card">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Assigned staff</div>
+          <div className="mt-1 text-3xl font-bold text-slate-900">{staffRows.length}</div>
         </div>
       </div>
 
-      {msg && <div className="p-3 bg-green-50 border border-green-200 text-green-800 font-bold rounded">{msg}</div>}
+      {sub.description ? (
+        <div className="card text-sm text-slate-600">{sub.description}</div>
+      ) : null}
 
-      <form onSubmit={handleSave} className="bg-white p-6 border border-[var(--border)] rounded space-y-4">
-        <h2 className="text-base font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2">
-          Subject Details & Instructor
-        </h2>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block font-semibold mb-1">Subject Code *</label>
-            <input
-              type="text"
-              required
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded font-mono font-bold"
-            />
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Offered to classes</h2>
+        {classRows.length === 0 ? (
+          <EmptyState message="Not assigned to any class yet." cta={{ href: '/admin/classes', label: 'Manage classes' }} />
+        ) : (
+          <div className="card overflow-x-auto p-0">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Class</th>
+                  <th>Teacher</th>
+                </tr>
+              </thead>
+              <tbody>
+                {classRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      <Link href={`/admin/classes/${row.class?.id}`} className="font-medium text-slate-900 hover:underline">
+                        {row.class ? `${row.class.name}${row.class.arm ? ' ' + row.class.arm : ''}` : '—'}
+                      </Link>
+                    </td>
+                    <td>{row.teacher?.full_name ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        )}
+      </section>
 
-          <div>
-            <label className="block font-semibold mb-1">Department</label>
-            <select
-              value={departmentId}
-              onChange={(e) => setDepartmentId(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded font-bold"
-            >
-              {departmentsStore.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Assigned staff</h2>
+        {staffRows.length === 0 ? (
+          <EmptyState message="No staff assigned to this subject." cta={{ href: '/admin/staff', label: 'View staff' }} />
+        ) : (
+          <div className="card divide-y divide-slate-100">
+            {staffRows
+              .map((r) => r.staff)
+              .filter(Boolean)
+              .map((s) => (
+                <Link key={s!.id} href={`/admin/staff/${s!.id}`} className="flex items-center justify-between py-3 hover:bg-slate-50">
+                  <span className="font-medium text-slate-900">{s!.profile?.full_name ?? '—'}</span>
+                  <span className="text-sm text-slate-500">
+                    {s!.position} · {s!.staff_no}
+                  </span>
+                </Link>
               ))}
-            </select>
           </div>
-        </div>
-
-        <div>
-          <label className="block font-semibold mb-1">Subject Name *</label>
-          <input
-            type="text"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full p-2 border border-[var(--border)] rounded font-bold"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block font-semibold mb-1">Target Classes</label>
-            <input
-              type="text"
-              value={targetClass}
-              onChange={(e) => setTargetClass(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Lead Instructor Name</label>
-            <input
-              type="text"
-              value={teacherName}
-              onChange={(e) => setTeacherName(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block font-semibold mb-1">Subject Description</label>
-          <textarea
-            rows={4}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="w-full p-2 border border-[var(--border)] rounded"
-          ></textarea>
-        </div>
-
-        <div className="pt-2 flex justify-end">
-          <button type="submit" className="px-5 py-2 bg-[var(--primary)] text-white font-bold rounded">
-            Save Subject Changes
-          </button>
-        </div>
-      </form>
+        )}
+      </section>
     </div>
   );
 }

@@ -1,82 +1,129 @@
-'use client';
+﻿import Link from 'next/link';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, EmptyState } from '@/lib/admin/ui';
+import { setResultStatus } from '@/lib/admin/people-actions';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { resultsStore, StudentResult } from '@/lib/academicStore';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function ReviewResultsPage() {
-  const [results, setResults] = useState<StudentResult[]>([...resultsStore]);
+type SP = Record<string, string | string[] | undefined>;
 
-  const draftResults = results.filter((r) => r.status === 'Draft');
+export default async function ReviewResultsPage({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const sp = await searchParams;
+  const supabase = await createClient();
 
-  const handleReview = (id: string) => {
-    const rec = resultsStore.find((r) => r.id === id);
-    if (rec) {
-      rec.status = 'Reviewed';
-      setResults([...resultsStore]);
-      logAuditEvent('Result Reviewed', 'System', `HOD reviewed score entry for ${rec.studentName} (${rec.subjectName})`);
-    }
-  };
+  const { data, error } = await supabase
+    .from('results')
+    .select(
+      `id, ca1_score, ca2_score, exam_score, total_score, grade, status,
+       student:students(id, admission_no, profile:profiles(full_name)),
+       subject:subjects(id, name, code),
+       class:classes(id, name, arm),
+       term:terms(id, name)`,
+    )
+    .eq('status', 'submitted')
+    .order('updated_at')
+    .limit(500);
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Review results" />
+        <div className="alert-danger">Failed to load queue: {error.message}</div>
+      </div>
+    );
+  }
+
+  const rows = (data ?? []) as unknown as {
+    id: string;
+    ca1_score: number;
+    ca2_score: number;
+    exam_score: number;
+    total_score: number;
+    grade: string | null;
+    student: { admission_no: string; profile: { full_name: string } | null } | null;
+    subject: { name: string; code: string | null } | null;
+    class: { name: string; arm: string | null } | null;
+    term: { name: string } | null;
+  }[];
 
   return (
-    <div className="space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex justify-between items-center">
-        <div>
-          <Link href="/admin/results" className="font-bold text-[var(--primary)] hover:underline">
-            ← Back to Results Engine
+    <div className="space-y-6">
+      <PageHeader
+        title="Review queue"
+        description="Submitted results awaiting approval. Approving makes them visible for publication."
+        actions={
+          <Link href="/admin/results" className="btn-secondary">
+            All results
           </Link>
-          <h1 className="text-xl font-bold text-[var(--primary-dark)] mt-1">Head of Department (HOD) Review Stage</h1>
-          <p className="text-xs text-[var(--muted-text)]">Review draft score entries and transition them to Reviewed state.</p>
-        </div>
-      </div>
+        }
+      />
+      <Flash ok={sp.ok} err={sp.err} />
 
-      <div className="bg-white border border-[var(--border)] rounded overflow-hidden">
-        <div className="p-4 font-bold text-sm text-[var(--primary-dark)] border-b border-[var(--border)]">
-          Draft Results Awaiting HOD Review ({draftResults.length})
-        </div>
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-[var(--border)] bg-[var(--soft-bg)] text-[var(--muted-text)] font-semibold">
-              <th className="p-3">Student Name</th>
-              <th className="p-3">Subject</th>
-              <th className="p-3">CA (30)</th>
-              <th className="p-3">Exam (70)</th>
-              <th className="p-3 font-bold">Total</th>
-              <th className="p-3">Grade</th>
-              <th className="p-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--border)]">
-            {draftResults.length === 0 ? (
+      {rows.length === 0 ? (
+        <EmptyState
+          title="Queue is clear"
+          body="No results are waiting for review."
+          action={
+            <Link href="/admin/results" className="btn-secondary">
+              Back to results
+            </Link>
+          }
+        />
+      ) : (
+        <div className="card overflow-x-auto p-0">
+          <table className="table">
+            <thead>
               <tr>
-                <td colSpan={7} className="p-6 text-center text-[var(--muted-text)] font-semibold">
-                  No draft score entries currently awaiting HOD review.
-                </td>
+                <th>Student</th>
+                <th>Subject</th>
+                <th>Class</th>
+                <th>Term</th>
+                <th className="text-right">Total</th>
+                <th>Grade</th>
+                <th className="text-right">Actions</th>
               </tr>
-            ) : (
-              draftResults.map((r) => (
-                <tr key={r.id} className="hover:bg-[var(--soft-bg)]">
-                  <td className="p-3 font-bold text-[var(--text)]">{r.studentName}</td>
-                  <td className="p-3 font-semibold">{r.subjectName}</td>
-                  <td className="p-3 font-mono">{r.caScore}</td>
-                  <td className="p-3 font-mono">{r.examScore}</td>
-                  <td className="p-3 font-mono font-bold text-[var(--primary-dark)]">{r.totalScore}</td>
-                  <td className="p-3 font-bold text-green-700">{r.grade}</td>
-                  <td className="p-3 text-right">
-                    <button
-                      onClick={() => handleReview(r.id)}
-                      className="px-3 py-1 bg-[var(--primary)] text-white font-bold rounded hover:bg-[var(--primary-dark)]"
-                    >
-                      Mark as Reviewed
-                    </button>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="font-medium text-slate-900">
+                    {r.student?.profile?.full_name ?? '—'}
+                    <div className="font-mono text-xs text-slate-400">{r.student?.admission_no}</div>
+                  </td>
+                  <td>{r.subject?.name}</td>
+                  <td>{r.class ? `${r.class.name}${r.class.arm ? ' ' + r.class.arm : ''}` : '—'}</td>
+                  <td>{r.term?.name ?? '—'}</td>
+                  <td className="text-right font-medium tabular-nums">{r.total_score}</td>
+                  <td>{r.grade ?? '—'}</td>
+                  <td className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <form action={setResultStatus} className="inline-flex">
+                        <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="status" value="approved" />
+                        <input type="hidden" name="path" value="/admin/results/review" />
+                        <button type="submit" className="btn-primary">
+                          Approve
+                        </button>
+                      </form>
+                      <form action={setResultStatus} className="inline-flex">
+                        <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="status" value="draft" />
+                        <input type="hidden" name="path" value="/admin/results/review" />
+                        <button type="submit" className="btn-secondary">
+                          Return to draft
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,118 +1,140 @@
-'use client';
+﻿import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, EmptyState, Badge } from '@/lib/admin/ui';
 
-import { useState, use } from 'react';
-import Link from 'next/link';
-import { parentsStore } from '@/lib/cmsStore';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function ParentDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const parentId = resolvedParams.id;
+type SP = Record<string, string | string[] | undefined>;
 
-  const parent = parentsStore.find((p) => p.id === parentId) || parentsStore[0];
+export default async function ParentDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<SP>;
+}) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const { id } = await params;
+  const sp = await searchParams;
+  const supabase = await createClient();
 
-  const [name, setName] = useState(parent.name);
-  const [email, setEmail] = useState(parent.email);
-  const [phone, setPhone] = useState(parent.phone);
-  const [address, setAddress] = useState(parent.address);
-  const [wardStr, setWardStr] = useState(parent.wardNames.join(', '));
-  const [msg, setMsg] = useState('');
+  const [{ data: parent }, { data: links, error: linkError }] = await Promise.all([
+    supabase
+      .from('parents')
+      .select('id, occupation, employer, address, alt_phone, relationship, profile:profiles(id, full_name, email, phone, avatar_url, is_active)')
+      .eq('id', id)
+      .maybeSingle(),
+    supabase
+      .from('parent_student')
+      .select('student_id, relationship, is_primary, student:students(id, admission_no, status, class:classes(name, arm), profile:profiles(full_name))')
+      .eq('parent_id', id),
+  ]);
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    parent.name = name;
-    parent.email = email;
-    parent.phone = phone;
-    parent.address = address;
-    parent.wardNames = wardStr.split(',').map((s) => s.trim());
+  if (!parent) notFound();
 
-    logAuditEvent('Parent Profile Updated', 'Parent', `Updated directory record for parent ${parent.name}`);
-    setMsg('Parent record updated successfully!');
-    setTimeout(() => setMsg(''), 3000);
+  const p = parent as unknown as {
+    id: string;
+    occupation: string | null;
+    employer: string | null;
+    address: string | null;
+    alt_phone: string | null;
+    relationship: string | null;
+    profile: { id: string; full_name: string; email: string; phone: string | null; avatar_url: string | null; is_active: boolean } | null;
   };
+  const children = ((links ?? []) as unknown as {
+    student_id: string;
+    relationship: string;
+    is_primary: boolean;
+    student: {
+      id: string;
+      admission_no: string;
+      status: string;
+      class: { name: string; arm: string | null } | null;
+      profile: { full_name: string } | null;
+    } | null;
+  }[]) ?? [];
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex justify-between items-center">
-        <div>
-          <Link href="/admin/parents" className="font-bold text-[var(--primary)] hover:underline">
-            ← Back to Parent Directory
+    <div className="space-y-6">
+      <PageHeader
+        title={p.profile?.full_name ?? 'Parent / Guardian'}
+        description={`${p.occupation ?? 'Guardian'}${p.employer ? ` at ${p.employer}` : ''}`}
+        actions={
+          <Link href="/admin/parents" className="btn-secondary">
+            ← All parents
           </Link>
-          <h1 className="text-xl font-bold text-[var(--primary-dark)] mt-1">{parent.name}</h1>
-          <p className="text-[var(--muted-text)] font-mono">{parent.email}</p>
+        }
+      />
+      <Flash ok={sp.ok} err={sp.err} />
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="card">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Email</div>
+          <div className="mt-1 break-all text-sm font-medium text-slate-900">{p.profile?.email ?? '—'}</div>
         </div>
-        <span className="px-3 py-1 bg-green-100 text-green-800 font-bold text-xs rounded">
-          {parent.status}
-        </span>
+        <div className="card">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Phone</div>
+          <div className="mt-1 text-sm font-medium text-slate-900">{p.profile?.phone ?? p.alt_phone ?? '—'}</div>
+        </div>
+        <div className="card">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Address</div>
+          <div className="mt-1 text-sm font-medium text-slate-900">{p.address ?? '—'}</div>
+        </div>
+        <div className="card">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Account</div>
+          <div className="mt-2 flex gap-2">
+            <Badge tone={p.profile?.is_active ? 'success' : 'error'}>{p.profile?.is_active ? 'Active' : 'Disabled'}</Badge>
+            <Badge tone="info">{p.relationship ?? 'guardian'}</Badge>
+          </div>
+        </div>
       </div>
 
-      {msg && <div className="p-3 bg-green-50 border border-green-200 text-green-800 font-bold rounded">{msg}</div>}
-
-      <form onSubmit={handleSave} className="bg-white p-6 border border-[var(--border)] rounded space-y-4">
-        <h2 className="text-base font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2">
-          Contact & Ward Association Profile
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block font-semibold mb-1">Parent / Guardian Name</label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            />
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Linked children ({children.length})</h2>
+        {linkError ? (
+          <div className="alert-danger">{linkError.message}</div>
+        ) : children.length === 0 ? (
+          <EmptyState
+            message="No children linked to this parent yet — admissions links them automatically, or link manually after enrollment."
+            cta={{ href: '/admin/applications', label: 'View applications' }}
+          />
+        ) : (
+          <div className="card overflow-x-auto p-0">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Admission no.</th>
+                  <th>Class</th>
+                  <th>Relationship</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {children.map((c) => (
+                  <tr key={c.student_id}>
+                    <td>
+                      <Link href={`/admin/students/${c.student?.id}`} className="font-medium text-slate-900 hover:underline">
+                        {c.student?.profile?.full_name ?? '—'}
+                      </Link>
+                      {c.is_primary ? <Badge tone="info">Primary</Badge> : null}
+                    </td>
+                    <td className="font-mono text-sm text-slate-500">{c.student?.admission_no}</td>
+                    <td>{c.student?.class ? `${c.student.class.name}${c.student.class.arm ? ' ' + c.student.class.arm : ''}` : '—'}</td>
+                    <td>{c.relationship}</td>
+                    <td>
+                      <Badge tone={c.student?.status === 'active' ? 'success' : 'neutral'}>{c.student?.status ?? '—'}</Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Email Address</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Phone Number</label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            />
-          </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Associated Student Wards (Comma-separated)</label>
-            <input
-              type="text"
-              value={wardStr}
-              onChange={(e) => setWardStr(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded font-bold"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="block font-semibold mb-1">Residential Contact Address</label>
-            <textarea
-              rows={3}
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded"
-            ></textarea>
-          </div>
-        </div>
-
-        <div className="pt-2 flex justify-end">
-          <button type="submit" className="px-5 py-2 bg-[var(--primary)] text-white font-bold rounded">
-            Save Parent Record
-          </button>
-        </div>
-      </form>
+        )}
+      </section>
     </div>
   );
 }

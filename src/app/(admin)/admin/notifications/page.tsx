@@ -1,92 +1,99 @@
-'use client';
+import Link from 'next/link';
+import { requireRole } from '@/lib/auth/session';
+import { createClient } from '@/lib/supabase/server';
+import { formatDateTime } from '@/lib/format';
+import { Badge } from '@/lib/admin/ui';
+import { ADMIN_PORTAL_ROLES, ROLE_LABELS } from '@/lib/auth/roles';
 
-import { useState } from 'react';
-import { logAuditEvent } from '@/lib/auditStore';
+export const metadata = { title: 'Notifications' };
 
-export default function AdminNotificationsPage() {
-  const [notifications, setNotifications] = useState([
-    { id: '1', title: 'Second Term PTA Assembly Reminder', target: 'All Parents', date: '2025-02-12', status: 'Sent' },
+export default async function NotificationsPage() {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const supabase = await createClient();
+
+  const [{ data: notifications }, { count: contactCount }] = await Promise.all([
+    supabase
+      .from('notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100),
+    supabase.from('contact_messages').select('*', { count: 'exact', head: true }),
   ]);
 
-  const [title, setTitle] = useState('');
-  const [target, setTarget] = useState('All Parents');
-
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title) return;
-    const newNotif = {
-      id: `${Date.now()}`,
-      title,
-      target,
-      date: new Date().toISOString().substring(0, 10),
-      status: 'Sent',
-    };
-    setNotifications([newNotif, ...notifications]);
-    logAuditEvent('Broadcast Notification Sent', 'System', `Dispatched broadcast "${title}" to target group ${target}`);
-    setTitle('');
-  };
+  const rows = notifications ?? [];
+  const unread = rows.filter((n) => !n.is_read).length;
 
   return (
-    <div className="space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded">
-        <h1 className="text-2xl font-bold text-[var(--primary-dark)]">System Notifications & Broadcast Center</h1>
-        <p className="text-xs text-[var(--muted-text)]">
-          Send instant email and portal alerts to parents, staff, or students.
-        </p>
-      </div>
-
-      <form onSubmit={handleSend} className="bg-white p-6 border border-[var(--border)] rounded space-y-3">
-        <h2 className="text-sm font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2">
-          Compose Broadcast Message
-        </h2>
-        <div>
-          <label className="block font-semibold mb-1">Target Audience</label>
-          <select
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            className="w-full p-2 border border-[var(--border)] rounded font-bold"
-          >
-            <option value="All Parents">All Registered Parents</option>
-            <option value="All Staff">All Academic & Admin Staff</option>
-            <option value="All Students">All Secondary Students</option>
-          </select>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-xs font-medium text-slate-500">Total</div>
+          <div className="text-2xl font-bold text-slate-900">{rows.length}</div>
         </div>
-        <div>
-          <label className="block font-semibold mb-1">Alert Headline / Subject *</label>
-          <input
-            type="text"
-            required
-            placeholder="e.g. Emergency Weather Closure Notice"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full p-2 border border-[var(--border)] rounded"
-          />
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-xs font-medium text-slate-500">Unread</div>
+          <div className="text-2xl font-bold text-amber-600">{unread}</div>
         </div>
-        <div className="flex justify-end">
-          <button type="submit" className="px-5 py-2 bg-[var(--primary)] text-white font-bold rounded">
-            Dispatch Broadcast
-          </button>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-xs font-medium text-slate-500">Contact messages</div>
+          <div className="text-2xl font-bold text-slate-900">{contactCount ?? 0}</div>
         </div>
-      </form>
-
-      <div className="bg-white border border-[var(--border)] rounded overflow-hidden">
-        <div className="p-4 font-bold text-sm text-[var(--primary-dark)] border-b border-[var(--border)]">
-          Recent Broadcast History
-        </div>
-        <div className="divide-y divide-[var(--border)]">
-          {notifications.map((n) => (
-            <div key={n.id} className="p-4 flex justify-between items-center hover:bg-[var(--soft-bg)]">
-              <div>
-                <div className="font-bold text-[var(--text)]">{n.title}</div>
-                <div className="text-[11px] text-[var(--muted-text)]">Target: {n.target} • Sent on {n.date}</div>
-              </div>
-              <span className="px-2 py-0.5 bg-green-100 text-green-800 font-bold text-[10px] rounded">
-                {n.status}
-              </span>
-            </div>
-          ))}
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-xs font-medium text-slate-500">Recipients</div>
+          <div className="text-2xl font-bold text-slate-900">
+            {new Set(rows.map((n) => n.profile_id)).size}
+          </div>
         </div>
       </div>
+
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Recipient</th>
+              <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Title</th>
+              <th className="px-4 py-3">Sent</th>
+              <th className="px-4 py-3">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((n) => (
+              <tr key={n.id} className="hover:bg-slate-50/60">
+                <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                  {n.profile_id.slice(0, 8)}…
+                </td>
+                <td className="px-4 py-3">
+                  <Badge tone="info">{n.type}</Badge>
+                </td>
+                <td className="px-4 py-3 font-medium text-slate-800">{n.title}</td>
+                <td className="px-4 py-3 text-slate-600">{formatDateTime(n.created_at)}</td>
+                <td className="px-4 py-3">
+                  <Badge tone={n.is_read ? 'success' : 'warning'}>
+                    {n.is_read ? 'Read' : 'Unread'}
+                  </Badge>
+                </td>
+              </tr>
+            ))}
+            {!rows.length && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                  No notifications yet.{' '}
+                  {contactCount ? (
+                    <Link href="/admin/messages" className="text-emerald-700 underline">
+                      {contactCount} contact message{contactCount > 1 ? 's' : ''} are waiting
+                    </Link>
+                  ) : null}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-slate-500">
+        Live from the <code>notifications</code> and <code>contact_messages</code> tables. Directory
+        roles: {Object.values(ROLE_LABELS).join(' · ')}.
+      </p>
     </div>
   );
 }

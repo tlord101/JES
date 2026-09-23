@@ -1,135 +1,176 @@
-'use client';
+﻿import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, EmptyState, Badge } from '@/lib/admin/ui';
 
-import { useState, use } from 'react';
-import Link from 'next/link';
-import { classesStore, subjectsStore } from '@/lib/academicStore';
-import { studentsStore } from '@/lib/cmsStore';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function AdminClassDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const classId = resolvedParams.id;
+type SP = Record<string, string | string[] | undefined>;
 
-  const classItem = classesStore.find((c) => c.id === classId) || classesStore[0];
+export default async function AdminClassDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<SP>;
+}) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const { id } = await params;
+  const sp = await searchParams;
+  const supabase = await createClient();
 
-  const [name, setName] = useState(classItem.name);
-  const [classTeacher, setClassTeacher] = useState(classItem.classTeacher);
-  const [capacity, setCapacity] = useState(classItem.capacity);
-  const [msg, setMsg] = useState('');
+  const [{ data: cls }, { data: students, error: rosterError }, { data: subjects }] = await Promise.all([
+    supabase
+      .from('classes')
+      .select('id, name, level, arm, capacity, room, is_active, class_teacher:profiles(full_name)')
+      .eq('id', id)
+      .maybeSingle(),
+    supabase
+      .from('students')
+      .select('id, admission_no, status, profile:profiles(full_name)')
+      .eq('class_id', id)
+      .order('admission_no')
+      .limit(1000),
+    supabase
+      .from('class_subjects')
+      .select('id, subject:subjects(id, name, code), teacher:profiles(full_name)')
+      .eq('class_id', id),
+  ]);
 
-  const enrolledStudents = studentsStore.filter(
-    (s) => s.class.toLowerCase() === classItem.name.toLowerCase() || classItem.name.includes(s.class)
-  );
+  if (!cls) notFound();
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    classItem.name = name;
-    classItem.classTeacher = classTeacher;
-    classItem.capacity = capacity;
-
-    logAuditEvent('Class Section Updated', 'System', `Updated class configuration for ${classItem.name}`);
-    setMsg('Class details saved successfully!');
-    setTimeout(() => setMsg(''), 3000);
+  const klass = cls as unknown as {
+    id: string;
+    name: string;
+    level: string;
+    arm: string | null;
+    capacity: number;
+    room: string | null;
+    is_active: boolean;
+    class_teacher: { full_name: string } | null;
   };
+  const roster = ((students ?? []) as unknown as {
+    id: string;
+    admission_no: string;
+    status: string;
+    profile: { full_name: string } | null;
+  }[]) ?? [];
+  const subjectRows = ((subjects ?? []) as unknown as {
+    id: string;
+    subject: { id: string; name: string; code: string | null } | null;
+    teacher: { full_name: string } | null;
+  }[]) ?? [];
+
+  const active = roster.filter((s) => s.status === 'active').length;
+  const full = active >= klass.capacity;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex justify-between items-center">
-        <div>
-          <Link href="/admin/classes" className="font-bold text-[var(--primary)] hover:underline">
-            ← Back to Class Directory
+    <div className="space-y-6">
+      <PageHeader
+        title={`${klass.name}${klass.arm ? ' ' + klass.arm : ''}`}
+        description={`${klass.level.replace('_', ' ')}${klass.room ? ` · Room ${klass.room}` : ''} · Capacity ${klass.capacity}`}
+        actions={
+          <Link href="/admin/classes" className="btn-secondary">
+            ← All classes
           </Link>
-          <h1 className="text-xl font-bold text-[var(--primary-dark)] mt-1">{classItem.name}</h1>
-          <p className="text-[var(--muted-text)] font-semibold">Level: {classItem.level} • Session 2024/2025</p>
+        }
+      />
+      <Flash ok={sp.ok} err={sp.err} />
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="card">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Class teacher</div>
+          <div className="mt-1 font-semibold text-slate-900">{klass.class_teacher?.full_name ?? 'Not assigned'}</div>
         </div>
-        <span className="px-3 py-1 bg-blue-100 text-blue-800 font-bold text-xs rounded">
-          {enrolledStudents.length} Students Enrolled
-        </span>
+        <div className="card">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Students</div>
+          <div className="mt-1 text-3xl font-bold text-slate-900">{roster.length}</div>
+          <div className="text-xs text-slate-400">{active} active</div>
+        </div>
+        <div className="card">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Subjects</div>
+          <div className="mt-1 text-3xl font-bold text-slate-900">{subjectRows.length}</div>
+        </div>
+        <div className="card">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Status</div>
+          <div className="mt-2 flex gap-2">
+            <Badge tone={klass.is_active ? 'success' : 'neutral'}>{klass.is_active ? 'Active' : 'Inactive'}</Badge>
+            <Badge tone={full ? 'warning' : 'success'}>{full ? 'At capacity' : 'Space available'}</Badge>
+          </div>
+        </div>
       </div>
 
-      {msg && <div className="p-3 bg-green-50 border border-green-200 text-green-800 font-bold rounded">{msg}</div>}
-
-      <form onSubmit={handleSave} className="bg-white p-6 border border-[var(--border)] rounded space-y-4">
-        <h2 className="text-base font-bold text-[var(--primary-dark)] border-b border-[var(--border)] pb-2">
-          Class Configuration & Form Teacher Allocation
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block font-semibold mb-1">Class Section Name</label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded font-bold"
-            />
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Subjects offered</h2>
+        {subjectRows.length === 0 ? (
+          <EmptyState message="No subjects assigned to this class yet." cta={{ href: '/admin/subjects', label: 'Manage subjects' }} />
+        ) : (
+          <div className="card overflow-x-auto p-0">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Subject</th>
+                  <th>Code</th>
+                  <th>Teacher</th>
+                </tr>
+              </thead>
+              <tbody>
+                {subjectRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      <Link href={`/admin/subjects/${row.subject?.id}`} className="font-medium text-slate-900 hover:underline">
+                        {row.subject?.name ?? '—'}
+                      </Link>
+                    </td>
+                    <td className="font-mono text-sm text-slate-500">{row.subject?.code ?? '—'}</td>
+                    <td>{row.teacher?.full_name ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        )}
+      </section>
 
-          <div>
-            <label className="block font-semibold mb-1">Assigned Form Teacher</label>
-            <input
-              type="text"
-              required
-              value={classTeacher}
-              onChange={(e) => setClassTeacher(e.target.value)}
-              className="w-full p-2 border border-[var(--border)] rounded font-semibold"
-            />
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Class roster ({roster.length})</h2>
+        {rosterError ? (
+          <div className="alert-danger">{rosterError.message}</div>
+        ) : roster.length === 0 ? (
+          <EmptyState message="No students in this class yet." cta={{ href: '/admin/enrollments', label: 'Enroll students' }} />
+        ) : (
+          <div className="card overflow-x-auto p-0">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Student</th>
+                  <th>Admission no.</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {roster.map((s, i) => (
+                  <tr key={s.id}>
+                    <td className="text-slate-400">{i + 1}</td>
+                    <td>
+                      <Link href={`/admin/students/${s.id}`} className="font-medium text-slate-900 hover:underline">
+                        {s.profile?.full_name ?? '—'}
+                      </Link>
+                    </td>
+                    <td className="font-mono text-sm text-slate-500">{s.admission_no}</td>
+                    <td>
+                      <Badge tone={s.status === 'active' ? 'success' : 'neutral'}>{s.status}</Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-
-          <div>
-            <label className="block font-semibold mb-1">Class Capacity</label>
-            <input
-              type="number"
-              value={capacity}
-              onChange={(e) => setCapacity(Number(e.target.value))}
-              className="w-full p-2 border border-[var(--border)] rounded font-mono"
-            />
-          </div>
-        </div>
-
-        <div className="pt-2 flex justify-end">
-          <button type="submit" className="px-5 py-2 bg-[var(--primary)] text-white font-bold rounded">
-            Save Class Config
-          </button>
-        </div>
-      </form>
-
-      {/* Enrolled Students Roster */}
-      <div className="bg-white border border-[var(--border)] rounded overflow-hidden">
-        <div className="p-4 font-bold text-sm text-[var(--primary-dark)] border-b border-[var(--border)]">
-          Class Roster — Enrolled Students
-        </div>
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-[var(--border)] bg-[var(--soft-bg)] text-[var(--muted-text)] font-semibold">
-              <th className="p-3">Admission No</th>
-              <th className="p-3">Student Name</th>
-              <th className="p-3">Gender</th>
-              <th className="p-3">Parent Name</th>
-              <th className="p-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--border)]">
-            {enrolledStudents.map((s) => (
-              <tr key={s.id} className="hover:bg-[var(--soft-bg)]">
-                <td className="p-3 font-mono font-bold text-[var(--primary-dark)]">{s.admissionNo}</td>
-                <td className="p-3 font-bold text-[var(--text)]">{s.name}</td>
-                <td className="p-3 text-[var(--muted-text)]">{s.gender}</td>
-                <td className="p-3 text-[var(--text)]">{s.parentName}</td>
-                <td className="p-3 text-right">
-                  <Link
-                    href={`/admin/students/${s.id}`}
-                    className="px-2.5 py-1 bg-white border border-[var(--border)] font-bold rounded hover:bg-[var(--soft-bg)]"
-                  >
-                    View Student Profile
-                  </Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        )}
+      </section>
     </div>
   );
 }

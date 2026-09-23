@@ -1,99 +1,125 @@
-'use client';
+﻿import Link from 'next/link';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, EmptyState, StatusBadge } from '@/lib/admin/ui';
+import { setResultStatus } from '@/lib/admin/people-actions';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { resultsStore, StudentResult } from '@/lib/academicStore';
-import { logAuditEvent } from '@/lib/auditStore';
+export const dynamic = 'force-dynamic';
 
-export default function PublishResultsPage() {
-  const [results, setResults] = useState<StudentResult[]>([...resultsStore]);
+type SP = Record<string, string | string[] | undefined>;
 
-  const approvedResults = results.filter((r) => r.status === 'Approved');
+export default async function PublishResultsPage({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const sp = await searchParams;
+  const supabase = await createClient();
 
-  const handlePublishAll = () => {
-    approvedResults.forEach((r) => {
-      r.status = 'Published';
-    });
-    setResults([...resultsStore]);
-    logAuditEvent('Results Published', 'System', `Published ${approvedResults.length} approved term results to student portal`);
-  };
+  const { data, error } = await supabase
+    .from('results')
+    .select(
+      `id, total_score, grade, status,
+       student:students(id, admission_no, profile:profiles(full_name)),
+       subject:subjects(id, name),
+       class:classes(id, name, arm),
+       term:terms(id, name)`,
+    )
+    .in('status', ['approved', 'published'])
+    .order('updated_at', { ascending: false })
+    .limit(500);
 
-  const handlePublishSingle = (id: string) => {
-    const rec = resultsStore.find((r) => r.id === id);
-    if (rec) {
-      rec.status = 'Published';
-      setResults([...resultsStore]);
-      logAuditEvent('Result Published', 'System', `Published result for ${rec.studentName} (${rec.subjectName})`);
-    }
-  };
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Publish results" />
+        <div className="alert-danger">Failed to load results: {error.message}</div>
+      </div>
+    );
+  }
+
+  const rows = (data ?? []) as unknown as {
+    id: string;
+    total_score: number;
+    grade: string | null;
+    status: string;
+    student: { admission_no: string; profile: { full_name: string } | null } | null;
+    subject: { name: string } | null;
+    class: { name: string; arm: string | null } | null;
+    term: { name: string } | null;
+  }[];
+
+  const ready = rows.filter((r) => r.status === 'approved');
+  const live = rows.filter((r) => r.status === 'published');
 
   return (
-    <div className="space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <Link href="/admin/results" className="font-bold text-[var(--primary)] hover:underline">
-            ← Back to Results Engine
+    <div className="space-y-6">
+      <PageHeader
+        title="Publish results"
+        description={`${ready.length} approved waiting to go live · ${live.length} already visible to parents and students.`}
+        actions={
+          <Link href="/admin/results" className="btn-secondary">
+            All results
           </Link>
-          <h1 className="text-xl font-bold text-[var(--primary-dark)] mt-1">Portal Result Publishing Stage</h1>
-          <p className="text-xs text-[var(--muted-text)]">
-            Publish approved results to make report sheets visible to parents and students. Students never see unpublished results.
-          </p>
-        </div>
+        }
+      />
+      <Flash ok={sp.ok} err={sp.err} />
 
-        {approvedResults.length > 0 && (
-          <button
-            onClick={handlePublishAll}
-            className="px-4 py-2 bg-green-700 text-white font-bold rounded hover:bg-green-800 transition-colors"
-          >
-            Publish All Approved Results ({approvedResults.length})
-          </button>
-        )}
-      </div>
-
-      <div className="bg-white border border-[var(--border)] rounded overflow-hidden">
-        <div className="p-4 font-bold text-sm text-[var(--primary-dark)] border-b border-[var(--border)]">
-          Approved Results Ready for Portal Publishing ({approvedResults.length})
-        </div>
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-[var(--border)] bg-[var(--soft-bg)] text-[var(--muted-text)] font-semibold">
-              <th className="p-3">Student Name</th>
-              <th className="p-3">Class</th>
-              <th className="p-3">Subject</th>
-              <th className="p-3 font-bold">Total Score</th>
-              <th className="p-3">Grade</th>
-              <th className="p-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--border)]">
-            {approvedResults.length === 0 ? (
+      {rows.length === 0 ? (
+        <EmptyState
+          title="Nothing to publish"
+          body="Approve results first, then publish them here."
+          action={
+            <Link href="/admin/results/approve" className="btn-primary">
+              Go to approvals
+            </Link>
+          }
+        />
+      ) : (
+        <div className="card overflow-x-auto p-0">
+          <table className="table">
+            <thead>
               <tr>
-                <td colSpan={6} className="p-6 text-center text-[var(--muted-text)] font-semibold">
-                  No approved results pending publication at this time.
-                </td>
+                <th>Student</th>
+                <th>Subject</th>
+                <th>Class</th>
+                <th>Term</th>
+                <th className="text-right">Total</th>
+                <th>Grade</th>
+                <th>Status</th>
+                <th className="text-right">Action</th>
               </tr>
-            ) : (
-              approvedResults.map((r) => (
-                <tr key={r.id} className="hover:bg-[var(--soft-bg)]">
-                  <td className="p-3 font-bold text-[var(--text)]">{r.studentName}</td>
-                  <td className="p-3 text-[var(--muted-text)]">{r.className}</td>
-                  <td className="p-3 font-semibold">{r.subjectName}</td>
-                  <td className="p-3 font-mono font-black text-sm text-[var(--primary-dark)]">{r.totalScore}</td>
-                  <td className="p-3 font-bold text-green-700">{r.grade}</td>
-                  <td className="p-3 text-right">
-                    <button
-                      onClick={() => handlePublishSingle(r.id)}
-                      className="px-3 py-1 bg-green-700 text-white font-bold rounded hover:bg-green-800"
-                    >
-                      Publish Now
-                    </button>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="font-medium text-slate-900">{r.student?.profile?.full_name ?? '—'}</td>
+                  <td>{r.subject?.name}</td>
+                  <td>{r.class ? `${r.class.name}${r.class.arm ? ' ' + r.class.arm : ''}` : '—'}</td>
+                  <td>{r.term?.name ?? '—'}</td>
+                  <td className="text-right font-medium tabular-nums">{r.total_score}</td>
+                  <td>{r.grade ?? '—'}</td>
+                  <td>
+                    <StatusBadge status={r.status} />
+                  </td>
+                  <td className="text-right">
+                    {r.status === 'approved' ? (
+                      <form action={setResultStatus} className="inline-flex">
+                        <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="status" value="published" />
+                        <input type="hidden" name="path" value="/admin/results/publish" />
+                        <button type="submit" className="btn-primary">
+                          Publish
+                        </button>
+                      </form>
+                    ) : (
+                      <span className="text-sm text-slate-400">Live</span>
+                    )}
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

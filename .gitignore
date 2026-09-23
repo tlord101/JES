@@ -43,3 +43,7 @@ next-env.d.ts
 
 supabase/combined-migration.sql
 server-*.txt
+
+# local logs
+server-final.log
+*.log

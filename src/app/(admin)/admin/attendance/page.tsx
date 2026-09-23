@@ -1,178 +1,129 @@
-'use client';
-
-import { useState } from 'react';
 import Link from 'next/link';
-import { attendanceStore, classesStore, AttendanceRecord } from '@/lib/academicStore';
-import { studentsStore } from '@/lib/cmsStore';
-import { logAuditEvent } from '@/lib/auditStore';
+import { requireRole } from '@/lib/auth/session';
+import { ADMIN_PORTAL_ROLES } from '@/lib/auth/roles';
+import { createClient } from '@/lib/supabase/server';
+import { PageHeader, Flash, StatusBadge, EmptyState } from '@/lib/admin/ui';
 
-export default function AdminAttendancePage() {
-  const [selectedClass, setSelectedClass] = useState('cls_ss1b');
-  const [selectedDate, setSelectedDate] = useState('2025-02-12');
-  const [attendance, setAttendance] = useState<AttendanceRecord[]>([...attendanceStore]);
-  const [savedMsg, setSavedMsg] = useState('');
+export const dynamic = 'force-dynamic';
 
-  const cls = classesStore.find((c) => c.id === selectedClass) || classesStore[0];
-  const classStudents = studentsStore.filter(
-    (s) => s.class.toLowerCase() === cls.name.toLowerCase() || cls.name.includes(s.class)
-  );
+type SP = Record<string, string | string[] | undefined>;
 
-  const getStatus = (studentId: string): 'Present' | 'Absent' | 'Late' => {
-    const rec = attendance.find((a) => a.studentId === studentId && a.date === selectedDate);
-    return rec ? rec.status : 'Present';
-  };
+export default async function AdminAttendancePage({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireRole(ADMIN_PORTAL_ROLES);
+  const sp = await searchParams;
+  const date = typeof sp.date === 'string' && sp.date ? sp.date : new Date().toISOString().slice(0, 10);
+  const supabase = await createClient();
 
-  const setStatus = (studentId: string, studentName: string, status: 'Present' | 'Absent' | 'Late') => {
-    const idx = attendance.findIndex((a) => a.studentId === studentId && a.date === selectedDate);
-    if (idx !== -1) {
-      attendance[idx].status = status;
-    } else {
-      attendance.push({
-        id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
-        date: selectedDate,
-        classId: cls.id,
-        className: cls.name,
-        studentId,
-        studentName,
-        status,
-      });
-    }
-    setAttendance([...attendance]);
-  };
+  const { data, error } = await supabase
+    .from('attendance')
+    .select(
+      'id, attendance_date, status, remarks, student:students(id, admission_no, profile:profiles(full_name), class:classes(name, arm))',
+    )
+    .eq('attendance_date', date)
+    .order('created_at')
+    .limit(2000);
 
-  const handleSaveAttendance = (e: React.FormEvent) => {
-    e.preventDefault();
-    logAuditEvent('Attendance Recorded', 'System', `Recorded daily attendance for class ${cls.name} on ${selectedDate}`);
-    setSavedMsg(`Attendance register for ${cls.name} saved successfully!`);
-    setTimeout(() => setSavedMsg(''), 3000);
-  };
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Attendance" />
+        <div className="alert-danger">Failed to load attendance: {error.message}</div>
+      </div>
+    );
+  }
+
+  const rows = (data ?? []) as unknown as {
+    id: string;
+    attendance_date: string;
+    status: string;
+    remarks: string | null;
+    student: {
+      id: string;
+      admission_no: string | null;
+      profile: { full_name: string } | null;
+      class: { name: string; arm: string | null } | null;
+    } | null;
+  }[];
+
+  const counts = rows.reduce<Record<string, number>>((acc, r) => {
+    acc[r.status] = (acc[r.status] ?? 0) + 1;
+    return acc;
+  }, {});
 
   return (
-    <div className="space-y-6 text-xs">
-      <div className="bg-white p-6 border border-[var(--border)] rounded flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--primary-dark)]">Daily Attendance Register</h1>
-          <p className="text-xs text-[var(--muted-text)]">
-            Mark daily class attendance (Present, Absent, Late) and generate termly attendance summaries.
-          </p>
-        </div>
-        <Link
-          href="/admin/attendance/reports"
-          className="px-4 py-2 bg-[var(--primary)] text-white text-xs font-bold rounded hover:bg-[var(--primary-dark)] transition-colors flex items-center gap-1.5"
-        >
-          <i className="bi bi-bar-chart-line-fill"></i>
-          <span>Attendance Analytics Reports</span>
-        </Link>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Attendance"
+        description="Daily register — marking is done by class teachers in the Staff portal."
+        actions={
+          <Link href="/staff/attendance" className="btn-secondary">
+            Open marking view
+          </Link>
+        }
+      />
+      <Flash ok={sp.ok} err={sp.err} />
 
-      {savedMsg && <div className="p-3 bg-green-50 border border-green-200 text-green-800 font-bold rounded">{savedMsg}</div>}
-
-      {/* Class and Date Selectors */}
-      <div className="bg-white p-4 border border-[var(--border)] rounded flex flex-col sm:flex-row items-center gap-4">
-        <div>
-          <label className="block font-semibold mb-1">Select Class Arm</label>
-          <select
-            value={selectedClass}
-            onChange={(e) => setSelectedClass(e.target.value)}
-            className="p-2 border border-[var(--border)] rounded font-bold"
-          >
-            {classesStore.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.level})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block font-semibold mb-1">Attendance Date</label>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="p-2 border border-[var(--border)] rounded font-mono font-bold"
-          />
-        </div>
-      </div>
-
-      {/* Attendance Register Table */}
-      <form onSubmit={handleSaveAttendance} className="bg-white border border-[var(--border)] rounded overflow-hidden">
-        <div className="p-4 font-bold text-sm text-[var(--primary-dark)] border-b border-[var(--border)] flex justify-between items-center">
-          <span>Daily Register — {cls.name} ({selectedDate})</span>
-          <span className="text-xs text-[var(--muted-text)]">Form Teacher: {cls.classTeacher}</span>
-        </div>
-
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-[var(--border)] bg-[var(--soft-bg)] text-[var(--muted-text)] font-semibold">
-              <th className="p-3">Admission No</th>
-              <th className="p-3">Student Name</th>
-              <th className="p-3 text-center">Present</th>
-              <th className="p-3 text-center">Absent</th>
-              <th className="p-3 text-center">Late</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--border)]">
-            {classStudents.map((s) => {
-              const currentStatus = getStatus(s.id);
-              return (
-                <tr key={s.id} className="hover:bg-[var(--soft-bg)]">
-                  <td className="p-3 font-mono font-bold text-[var(--primary-dark)]">{s.admissionNo}</td>
-                  <td className="p-3 font-bold text-[var(--text)]">{s.name}</td>
-
-                  <td className="p-3 text-center">
-                    <button
-                      type="button"
-                      onClick={() => setStatus(s.id, s.name, 'Present')}
-                      className={`px-3 py-1 font-bold rounded text-[11px] ${
-                        currentStatus === 'Present'
-                          ? 'bg-green-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-green-100'
-                      }`}
-                    >
-                      Present
-                    </button>
-                  </td>
-
-                  <td className="p-3 text-center">
-                    <button
-                      type="button"
-                      onClick={() => setStatus(s.id, s.name, 'Absent')}
-                      className={`px-3 py-1 font-bold rounded text-[11px] ${
-                        currentStatus === 'Absent'
-                          ? 'bg-red-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-red-100'
-                      }`}
-                    >
-                      Absent
-                    </button>
-                  </td>
-
-                  <td className="p-3 text-center">
-                    <button
-                      type="button"
-                      onClick={() => setStatus(s.id, s.name, 'Late')}
-                      className={`px-3 py-1 font-bold rounded text-[11px] ${
-                        currentStatus === 'Late'
-                          ? 'bg-amber-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-amber-100'
-                      }`}
-                    >
-                      Late
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        <div className="p-4 bg-[var(--soft-bg)] border-t border-[var(--border)] flex justify-end">
-          <button type="submit" className="px-6 py-2 bg-[var(--primary)] text-white font-bold rounded hover:bg-[var(--primary-dark)]">
-            Save Register
-          </button>
-        </div>
+      <form className="flex flex-wrap items-end gap-3" action="/admin/attendance">
+        <label className="block text-sm">
+          <span className="mb-1 block text-slate-600">Date</span>
+          <input type="date" name="date" defaultValue={date} className="input-field" />
+        </label>
+        <button type="submit" className="btn-secondary">
+          Load day
+        </button>
       </form>
+
+      <div className="flex flex-wrap gap-3 text-sm text-slate-600">
+        {Object.entries(counts).map(([status, n]) => (
+          <span key={status} className="rounded-full bg-slate-100 px-3 py-1 capitalize">
+            {status}: <strong>{n}</strong>
+          </span>
+        ))}
+        <span className="rounded-full bg-slate-100 px-3 py-1">
+          Total marked: <strong>{rows.length}</strong>
+        </span>
+      </div>
+
+      {rows.length === 0 ? (
+        <EmptyState
+          title="No register for this day"
+          body="Nothing has been marked for the selected date."
+          action={<Link href="/staff/attendance" className="btn-primary">Mark attendance</Link>}
+        />
+      ) : (
+        <div className="card overflow-x-auto p-0">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Adm. no</th>
+                <th>Class</th>
+                <th>Status</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="font-medium text-slate-900">
+                    {r.student?.profile?.full_name ?? 'Unknown'}
+                  </td>
+                  <td className="font-mono text-xs">{r.student?.admission_no || '—'}</td>
+                  <td>
+                    {r.student?.class
+                      ? `${r.student.class.name}${r.student.class.arm ? ' ' + r.student.class.arm : ''}`
+                      : '—'}
+                  </td>
+                  <td>
+                    <StatusBadge status={r.status} />
+                  </td>
+                  <td className="text-sm text-slate-500">{r.remarks || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
